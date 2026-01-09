@@ -12,6 +12,7 @@ from telegram.ext import (
 from telegram.request import HTTPXRequest
 
 from config import Config
+from keep_alive import keep_alive
 from services.downloader import VideoDownloader
 from services.graphics import GraphicsEngine
 from services.ai_generator import AIGenerator
@@ -183,6 +184,10 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 if __name__ == '__main__':
     Config.ensure_dirs()
+
+    keep_alive()
+
+    asyncio.sleep(3)
     
     print("🤖 Bot is starting...")
     
