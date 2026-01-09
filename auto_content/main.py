@@ -1,5 +1,6 @@
 import os
 import asyncio
+from time import time
 from telegram import Update, ReplyKeyboardRemove, ReplyKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, 
@@ -16,6 +17,8 @@ from keep_alive import keep_alive
 from services.downloader import VideoDownloader
 from services.graphics import GraphicsEngine
 from services.ai_generator import AIGenerator
+
+from time import sleep
 
 # Initialize Services
 graphics_engine = GraphicsEngine()
@@ -187,7 +190,7 @@ if __name__ == '__main__':
 
     keep_alive()
 
-    asyncio.sleep(3)
+    sleep(3)
     
     print("🤖 Bot is starting...")
     
