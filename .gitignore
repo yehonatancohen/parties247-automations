@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+
+# Environment Variables
+.env
+
+# Project specific
+auto_content/output/*
+!auto_content/output/.gitkeep
+auto_content/temp/*
+!auto_content/temp/.gitkeep
+
+# Operating System
+Thumbs.db
+desktop.ini
+.DS_Store
