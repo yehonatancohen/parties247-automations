@@ -1,0 +1,35 @@
+# Use an official Python runtime as a parent image
+FROM python:3.12-slim
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Install system dependencies for MoviePy and Playwright
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    libsm6 \
+    libxext6 \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set work directory
+WORKDIR /app
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Playwright browsers and their system dependencies
+RUN playwright install chromium
+RUN playwright install-deps chromium
+
+# Copy project files
+COPY . .
+
+# Ensure necessary directories exist
+RUN mkdir -p auto_content/temp auto_content/output
+
+# Run the bot
+CMD ["python", "auto_content/main.py"]

@@ -7,6 +7,7 @@ class Config:
     # Telegram
     TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
     ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID")) # אבטחה: שרק אתה תוכל להפעיל
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
     # Paths
     ASSETS_DIR = "assets"

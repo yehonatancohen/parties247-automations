@@ -11,6 +11,7 @@ from moviepy.editor import (
 )
 from config import Config
 from services.text_utils import TextUtils
+
 try:
     from pilmoji import Pilmoji
     from pilmoji.source import AppleEmojiSource
@@ -24,23 +25,35 @@ class GraphicsEngine:
         self._load_assets()
 
     def _load_assets(self):
+        # Load Wood Sign
         self.wood_img = Image.open(Config.WOOD_IMAGE_PATH).convert("RGBA")
         
         # Resize wood sign to be slightly wider than screen (110%)
         target_width = int(Config.VIDEO_SIZE[0] * 1.1)
         aspect_ratio = self.wood_img.height / self.wood_img.width
         new_height = int(target_width * aspect_ratio)
-        
         self.wood_img = self.wood_img.resize((target_width, new_height), Image.Resampling.LANCZOS)
         
+        # Load Parties Logo
+        logo_path = os.path.join(Config.ASSETS_DIR, "partieslogo_white.png")
+        if os.path.exists(logo_path):
+            self.logo_img = Image.open(logo_path).convert("RGBA")
+            # Resize logo to width 180px (Bigger)
+            logo_width = 180
+            logo_aspect = self.logo_img.height / self.logo_img.width
+            logo_height = int(logo_width * logo_aspect)
+            self.logo_img = self.logo_img.resize((logo_width, logo_height), Image.Resampling.LANCZOS)
+        else:
+            print(f"⚠️ Logo not found at {logo_path}")
+            self.logo_img = None
+        
         try:
-            self.title_font = ImageFont.truetype(Config.FONT_BOLD, 95) # Increased font size slightly
+            self.title_font = ImageFont.truetype(Config.FONT_BOLD, 95) 
             self.body_font = ImageFont.truetype(Config.FONT_REGULAR, 60)
         except OSError:
             raise FileNotFoundError("Fonts not found. Check config paths.")
 
     def _create_overlay(self, headline: str, body: str) -> str:
-        print("      > _create_overlay started")
         # Create transparent canvas
         canvas = Image.new('RGBA', Config.VIDEO_SIZE, (0, 0, 0, 0))
         
@@ -56,20 +69,49 @@ class GraphicsEngine:
             title_pilmoji = None
             body_pilmoji = None
             
-        print("      > Canvas created")
-        
         # Place Wood Sign
         sign_x = (Config.VIDEO_SIZE[0] - self.wood_img.width) // 2
         sign_y = 280 
+        
+        # --- FIX START: Solid Opaque Backing ---
+        if self.wood_img.mode == 'RGBA':
+            # 1. Get the alpha channel
+            r, g, b, alpha = self.wood_img.split()
+            
+            # 2. THRESHOLD: Force semi-transparent pixels to be 100% Opaque (255).
+            # This ensures the middle of the board is a solid wall that blocks video text.
+            solid_mask = alpha.point(lambda p: 255 if p > 10 else 0)
+            
+            # 3. ERODE: Shrink this solid block by 5 pixels (MUST BE ODD).
+            # We shrink it so this hard black block hides *inside* the soft wood edges.
+            eroded_mask = solid_mask.filter(ImageFilter.MinFilter(5))
+            
+            # 4. BLUR: Soften the edges of the black block slightly so it blends.
+            backing_mask = eroded_mask.filter(ImageFilter.GaussianBlur(1))
+            
+            # 5. Create the Solid Black Layer
+            black_bg = Image.new('RGBA', self.wood_img.size, (0, 0, 0, 255))
+            
+            # 6. Paste Backing First
+            canvas.paste(black_bg, (sign_x, sign_y), mask=backing_mask)
+            
+        # 7. Paste Wood Image on Top
         canvas.paste(self.wood_img, (sign_x, sign_y), self.wood_img)
-        print(f"      > Wood sign pasted (size: {self.wood_img.size})")
+        # --- FIX END ---
+        
+        # Place Logo (Under the banner)
+        if self.logo_img:
+            center_x = Config.VIDEO_SIZE[0] // 2
+            # Position: Closer to banner (sign_y + height - 5)
+            logo_y = sign_y + self.wood_img.height - 5 
+            logo_x = center_x - (self.logo_img.width // 2)
+            canvas.paste(self.logo_img, (logo_x, logo_y), self.logo_img)
         
         # Text Bounds Calculation
         safe_width = int(Config.VIDEO_SIZE[0] * 0.85) 
         center_x = Config.VIDEO_SIZE[0] // 2
         
         # --- HEADLINE PREP ---
-        print("      > Processing Hebrew headline...")
         title_font = self.title_font
         headline_processed = TextUtils.process_hebrew(headline)
         
@@ -79,7 +121,6 @@ class GraphicsEngine:
         headline_pos = (center_x, sign_y + 80) 
         
         # --- BODY PREP ---
-        print("      > Processing Hebrew body...")
         def wrap_text_by_width(text, font, max_width):
             lines = []
             words = text.split()
@@ -175,104 +216,121 @@ class GraphicsEngine:
         title_shadow = make_shadow(title_layer, blur_radius=2)
         if title_shadow:
             canvas.paste(title_shadow, (4, 4), title_shadow)
-            canvas.paste(title_shadow, (8, 8), title_shadow) # Double paste for depth
+            canvas.paste(title_shadow, (8, 8), title_shadow) 
 
         # Body Shadow (Light, Minimal offset)
         body_shadow = make_shadow(body_layer, blur_radius=2)
         if body_shadow:
-            # Minimal offset to avoid "duplicate" look on emojis
             canvas.paste(body_shadow, (2, 2), body_shadow) 
 
         # Paste Main Layers
         canvas.paste(title_layer, (0, 0), title_layer)
         canvas.paste(body_layer, (0, 0), body_layer)
         
-        print("      > Text drawn")
-        
         overlay_path = os.path.join(Config.TEMP_DIR, "overlay.png")
-        print(f"      > Saving overlay to {overlay_path}...")
         canvas.save(overlay_path)
-        print("      > Overlay saved")
         return overlay_path
 
     def _gaussian_blur(self, image):
         """Applies strong Gaussian Blur to a frame using PIL"""
         return np.array(Image.fromarray(image).filter(ImageFilter.GaussianBlur(radius=15)))
 
-    def render_video(self, input_path: str, headline: str, body: str, progress_callback=None) -> str:
-        print("🎨 Rendering video...")
+    def render_video(self, input_path: str, headline: str, body: str, layout_mode: str = 'lower', progress_callback=None) -> str:
+        """
+        Renders the final video.
+        layout_mode: 'lower' (crop top, center low) or 'standard' (no crop, center mid).
+        """
+        print(f"🎨 Rendering video ({layout_mode})...")
+        
+        def make_even(n):
+            n = int(n)
+            return n if n % 2 == 0 else n + 1
+
         try:
-            print("   - Creating overlay...")
             overlay_path = self._create_overlay(headline, body)
             
             # Video Processing
-            print("   - Loading video clip...")
             with VideoFileClip(input_path) as clip:
+                # Target dimensions (ensure even)
+                target_w = make_even(Config.VIDEO_SIZE[0])
+                target_h = make_even(Config.VIDEO_SIZE[1])
+                
                 # Background (Solid Black)
-                print("   - Creating background...")
-                bg_clip = ColorClip(size=Config.VIDEO_SIZE, color=(0, 0, 0)).set_duration(clip.duration)
+                bg_clip = ColorClip(size=(target_w, target_h), color=(0, 0, 0)).set_duration(clip.duration)
                 
                 # Main Content
-                print("   - Processing main content...")
+                # Resize to fit width
+                main_clip = clip.resize(width=target_w)
+                # Force even height after aspect-ratio resize
+                main_clip = main_clip.resize(height=make_even(main_clip.h))
                 
-                # Resize to always fill width (fit the screen horizontally)
-                main_clip = clip.resize(width=Config.VIDEO_SIZE[0])
-                
-                # Cut the top part (where text usually is)
-                # 180px is a safe bet for TikTok/Reels UI/Header
-                main_clip = main_clip.crop(y1=180)
-                
-                # Position the CENTER of the video in the CENTER of the lower part
-                # Lower part roughly Y=700 to Y=1920. Center ~1310.
-                target_center_y = 1200
-                top_pos = target_center_y - (main_clip.h / 2)
-                
-                main_clip = main_clip.set_position(("center", top_pos))
-
-                # Top Gap Filler (Gap between top of screen and banner)
-                print("   - Processing top gap filler...")
-                # Banner starts at 280. We extend down to 300 for overlap.
-                banner_y = 300 
-                
-                # Resize to fill width, then crop height
-                top_clip = clip.resize(width=Config.VIDEO_SIZE[0])
-                # Ensure it's tall enough
-                if top_clip.h < banner_y:
-                    top_clip = clip.resize(height=banner_y)
+                # LAYOUT LOGIC
+                if layout_mode == 'lower':
+                    # Crop top (TikTok captions area)
+                    crop_y = 180
+                    if main_clip.h > crop_y + 100: # Ensure we don't crop a tiny video to death
+                        main_clip = main_clip.crop(y1=crop_y)
+                        main_clip = main_clip.resize(height=make_even(main_clip.h))
                     
-                top_clip = top_clip.crop(x_center=top_clip.w/2, y_center=top_clip.h/2, width=Config.VIDEO_SIZE[0], height=banner_y)
+                    # Position LOW
+                    target_center_y = 1250
+                    
+                    # Background source (also crop top to hide junk in blur)
+                    bg_source_clip = clip.crop(y1=min(crop_y, clip.h - 10))
+                else:
+                    target_center_y = target_h // 2
+                    bg_source_clip = clip
                 
-                # Apply Gaussian Blur (Clean)
-                top_clip = top_clip.fl_image(self._gaussian_blur)
+                # Calculate position
+                top_pos = int(target_center_y - (main_clip.h / 2))
                 
-                # Lower Opacity and Position (0.5 makes it darker against black bg)
-                top_clip = top_clip.set_opacity(0.5).set_position(("center", 0))
+                # --- PREVENT BANNER OVERLAP ---
+                # Banner ends around y=600. If video starts higher, crop it.
+                banner_safe_y = 620
+                if top_pos < banner_safe_y:
+                    overlap = banner_safe_y - top_pos
+                    if main_clip.h > overlap + 50:
+                        main_clip = main_clip.crop(y1=int(overlap))
+                        main_clip = main_clip.resize(height=make_even(main_clip.h))
+                        top_pos = banner_safe_y
+
+                main_clip = main_clip.set_position(("center", int(top_pos)))
+
+                # Blurred Background (Fills screen)
+                # Resize to fill screen height then crop width
+                bg_video_clip = bg_source_clip.resize(height=target_h)
+                if bg_video_clip.w < target_w:
+                    bg_video_clip = bg_video_clip.resize(width=target_w)
                 
-                # Overlay
-                print("   - Adding overlay...")
+                # Ensure even width before crop
+                bg_video_clip = bg_video_clip.resize(width=make_even(bg_video_clip.w))
+                    
+                bg_video_clip = bg_video_clip.crop(x_center=int(bg_video_clip.w/2), y_center=int(bg_video_clip.h/2), 
+                                                   width=target_w, height=target_h)
+                
+                # Apply Blur
+                bg_video_clip = bg_video_clip.fl_image(self._gaussian_blur)
+                bg_video_clip = bg_video_clip.set_opacity(0.4).set_position("center")
+                
+                # Overlay (Banner + Text)
                 overlay_clip = ImageClip(overlay_path).set_duration(clip.duration).set_position("center")
                 
                 # Composite
-                print("   - Compositing final video...")
-                # Layer order: 
-                # 1. Background (Black)
-                # 2. Main Clip (might overflow up)
-                # 3. Top Clip (covers the overflow at the top 0-300)
-                # 4. Banner (overlay)
-                final = CompositeVideoClip([bg_clip, main_clip, top_clip, overlay_clip], size=Config.VIDEO_SIZE)
-                final = final.set_duration(clip.duration) # Ensure duration matches
+                final = CompositeVideoClip([bg_clip, bg_video_clip, main_clip, overlay_clip], size=(target_w, target_h))
+                final = final.set_duration(clip.duration) 
                 
                 output_path = os.path.join(Config.OUTPUT_DIR, f"final_{os.path.basename(input_path)}")
                 
                 # Write file
-                print(f"   - Writing video file to {output_path}...")
                 final.write_videofile(
                     output_path, 
                     codec='libx264', 
                     fps=24, 
-                    preset='ultrafast',  # Faster rendering for testing
+                    preset='medium',
+                    bitrate="2500k",
+                    audio_codec="aac",
                     threads=4,
-                    logger=None
+                    logger='bar'
                 )
                 
             return output_path

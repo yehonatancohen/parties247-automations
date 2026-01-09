@@ -9,3 +9,7 @@ python-dotenv
 pilmoji==2.0.4
 emoji==1.7.0
 requests
+g4f
+curl_cffi
+google-generativeai
+playwright

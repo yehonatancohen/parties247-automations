@@ -1,89 +1,85 @@
-# 🎥 AutoContent Bot - Social Media Automation
+# 🎥 Parties247 AutoContent Bot
 
-An automated pipeline for generating "News Style" vertical videos for TikTok, Instagram Reels, and YouTube Shorts. The bot fetches video content, applies a branded graphic overlay with Hebrew text support, and processes the video for optimal engagement.
+An automated pipeline for generating high-quality "News Style" vertical videos for TikTok, Instagram Reels, and YouTube Shorts. The bot fetches video content, applies a branded graphic overlay with Hebrew text support, generates viral AI descriptions, and processes everything for optimal engagement.
 
 ## 🚀 Features
-* **Video Downloading:** Automatic fetching from various platforms (TikTok, YouTube, etc.) using `yt-dlp`.
-* **Smart Rendering:**
-    * Resizes content to 9:16 aspect ratio.
-    * Generates a blurred, darkened background to fill empty space.
-    * Applies a custom PNG overlay (e.g., wooden sign).
-* **Hebrew Support:** Full RTL (Right-to-Left) text rendering using `python-bidi` and `arabic-reshaper`.
-* **Telegram Interface:** Control the entire process via a simple Telegram chat bot.
-* **Scalable Architecture:** Micro-service style structure (Downloader, Graphics, Text Utils).
-
-## 🛠️ Project Structure
-```text
-/auto_content_bot
-│
-├── .env                    # Secrets (Token, User ID)
-├── main.py                 # Telegram Bot Entry Point
-├── config.py               # Configuration & Paths
-├── requirements.txt        # Python Dependencies
-├── assets/                 # Static files
-│   ├── wood_sign.png       # The overlay image
-│   └── fonts/              # .ttf files supporting Hebrew
-└── services/
-    ├── downloader.py       # Video fetching logic
-    ├── graphics.py         # Image & Video rendering engine
-    └── text_utils.py       # RTL text processing
-
-```
+* **Multi-Platform Support:** Advanced video fetching from TikTok, Instagram, and YouTube.
+* **Stealth TikTok Downloader:** Uses Playwright browser automation to bypass bot detection.
+* **AI-Powered Captions:** Automatically generates viral Hebrew descriptions using Google's **Gemini 1.5 Flash**.
+* **Pro Graphics Engine:**
+    * Resizes content to 9:16 (1080x1920) aspect ratio.
+    * Generates a full-screen blurred background to eliminate black bars.
+    * Applies a custom branded wooden sign overlay.
+    * **Opaque Backing:** Smart layer logic prevents video/text bleed-through behind the banner.
+* **Hebrew & Emoji Support:** Full RTL (Right-to-Left) rendering with correct emoji positioning.
+* **Dual Layout Modes:** 
+    * `Standard`: Centered video.
+    * `Lower`: Crops the top (to hide original captions) and centers the video lower for better clarity.
+* **Docker Ready:** Deploy easily anywhere with containerization.
 
 ## ⚙️ Setup & Installation
 
-### 1. Clone & Install
+### 1. Requirements
+* Python 3.12+
+* [FFmpeg](https://ffmpeg.org/) (System dependency for video processing)
+* [Playwright](https://playwright.dev/) (For TikTok bypass)
 
+### 2. Manual Installation
 ```bash
 git clone <repo_url>
-cd auto_content_bot
+cd parties247-automations
 pip install -r requirements.txt
-
+playwright install chromium
+playwright install-deps chromium
 ```
-
-*Note: Ensure you have [ImageMagick](https://imagemagick.org/) installed if running on Windows (required for MoviePy).*
-
-### 2. Assets Configuration
-
-* Place your overlay image in `assets/wood_sign.png`.
-* Place Hebrew supporting fonts (Bold & Regular) in `assets/fonts/`.
-* Update paths in `config.py` if filenames differ.
 
 ### 3. Environment Variables
-
 Create a `.env` file in the root directory:
-
 ```ini
 TELEGRAM_TOKEN=your_bot_token_here
-ALLOWED_USER_ID=123456789
-
+ALLOWED_USER_ID=your_id_here
+GEMINI_API_KEY=your_google_ai_key_here
 ```
+
+## 🐳 Docker Deployment (Recommended)
+The easiest way to run the bot with all dependencies (FFmpeg, Chromium, etc.) correctly configured.
+
+1. **Build:**
+   ```bash
+   docker build -t parties-bot .
+   ```
+2. **Run:**
+   ```bash
+   docker run -d --name parties-bot --env-file .env -v ${PWD}/auto_content/output:/app/auto_content/output parties-bot
+   ```
 
 ## 🤖 Usage
+1. Start the bot in Telegram with `/start`.
+2. **Send Link:** Paste the TikTok/Instagram/YouTube URL.
+3. **Send Title:** The large text that appears on the wooden sign.
+4. **Send Body:** The sub-text for the sign.
+5. **Choose Layout:** Select between Standard or Lower (for TikToks with captions).
+6. **Wait:** The bot will download, design, and render the video, then send it back with an AI-generated viral caption.
 
-Run the bot:
-
-```bash
-python main.py
-
-```
-
-**Telegram Command Format:**
-Send a message to your bot in the following format:
-
+## 🛠️ Project Structure
 ```text
-Video URL | Title Text | Body Text
+parties247-automations/
+├── auto_content/
+│   ├── main.py             # Bot entry point & conversation logic
+│   ├── config.py           # Paths and settings
+│   ├── assets/             # Branding images & fonts
+│   └── services/
+│       ├── ai_generator.py # Gemini AI caption logic
+│       ├── downloader.py   # Stealth Playwright/yt-dlp logic
+│       ├── graphics.py     # MoviePy rendering engine
+│       └── text_utils.py   # Hebrew RTL handling
+├── Dockerfile              # Container configuration
+└── requirements.txt        # Python dependencies
 ```
 
-**Example:**
-`https://www.tiktok.com/@user/video/123 | מסיבה בחיפה! | הדיג'יי הכי חזק מגיע לרוממה בחמישי הקרוב`
-
-## 📦 Requirements
-
-* Python 3.9+
-* moviepy
-* Pillow
-* python-telegram-bot
-* yt-dlp
-* python-bidi
-* arabic-reshaper
+## 📦 Core Dependencies
+* `moviepy`: Video editing & compositing.
+* `google-generativeai`: Gemini 1.5 Flash integration.
+* `playwright`: Headless browser automation.
+* `python-telegram-bot`: Interactive CLI/Chat interface.
+* `Pillow` & `pilmoji`: High-quality image processing with emoji support.

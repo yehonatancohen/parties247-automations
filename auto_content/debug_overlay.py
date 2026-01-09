@@ -74,7 +74,7 @@ def main():
                     # Match graphics.py logic: Crop top 180px
                     main_clip = main_clip.crop(y1=180)
                     
-                    target_center_y = 1200
+                    target_center_y = 1150
                     top_pos = target_center_y - (main_clip.h / 2)
                     main_clip = main_clip.set_position(("center", top_pos))
                     
