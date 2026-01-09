@@ -48,10 +48,19 @@ class GraphicsEngine:
             self.logo_img = None
         
         try:
+            print(f"Loading font from: {Config.FONT_BOLD}")
+            if os.path.exists(Config.FONT_BOLD):
+                size = os.path.getsize(Config.FONT_BOLD)
+                print(f"Font file size: {size} bytes")
+                with open(Config.FONT_BOLD, 'rb') as f:
+                    header = f.read(4)
+                    print(f"Font header: {header.hex()}")
+            
             self.title_font = ImageFont.truetype(Config.FONT_BOLD, 95) 
             self.body_font = ImageFont.truetype(Config.FONT_REGULAR, 60)
-        except OSError:
-            raise FileNotFoundError("Fonts not found. Check config paths.")
+        except OSError as e:
+            print(f"OSError loading font: {e}")
+            raise FileNotFoundError(f"Fonts not found or invalid at {Config.FONT_BOLD}. Error: {e}")
 
     def _create_overlay(self, headline: str, body: str) -> str:
         # Create transparent canvas

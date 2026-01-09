@@ -10,7 +10,9 @@ class Config:
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
     # Paths
-    ASSETS_DIR = "assets"
+    # Use the assets directory relative to this config file (inside auto_content)
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    ASSETS_DIR = os.path.join(BASE_DIR, "assets")
     OUTPUT_DIR = "output"
     TEMP_DIR = "temp"
     WOOD_IMAGE_PATH = os.path.join(ASSETS_DIR, "wood_sign.png")
