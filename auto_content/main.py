@@ -1,4 +1,9 @@
 import os
+import PIL.Image
+
+# Monkey patch ANTIALIAS for older libraries (moviepy, pilmoji)
+if not hasattr(PIL.Image, 'ANTIALIAS'):
+    PIL.Image.ANTIALIAS = PIL.Image.Resampling.LANCZOS
 
 import asyncio
 import subprocess
