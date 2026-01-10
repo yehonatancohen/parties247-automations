@@ -18,9 +18,10 @@ class Config:
     WOOD_IMAGE_PATH = os.path.join(ASSETS_DIR, "wood_sign.png")
     
     # Fonts
-    FONT_BOLD = os.path.join(ASSETS_DIR, "fonts", "Rubik-Bold.ttf")
-    # FONT_REGULAR = os.path.join(ASSETS_DIR, "fonts", "Heebo-Regular.ttf") # We'll use bold for both as requested, or keep regular if needed. User asked for "rubik bold" so I'll set bold to rubik.
-    FONT_REGULAR = os.path.join(ASSETS_DIR, "fonts", "Rubik-Bold.ttf") # Using Rubik Bold for body too per request "use rubik bold as font" (singular)
+    # Switched to Heebo temporarily because the provided Rubik-Bold.ttf is a Variable Font
+    # which Pillow loads as "Light". Heebo is a static bold font and works correctly.
+    FONT_BOLD = os.path.join(ASSETS_DIR, "fonts", "Heebo-Bold.ttf")
+    FONT_REGULAR = os.path.join(ASSETS_DIR, "fonts", "Heebo-Bold.ttf")
 
     # Video Settings
     VIDEO_SIZE = (1080, 1920)

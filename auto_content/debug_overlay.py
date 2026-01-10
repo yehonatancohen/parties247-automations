@@ -106,15 +106,22 @@ def main():
                 final_preview_path = overlay_path # Fallback
         
         # Try to open the image automatically
-        if os.name == 'nt':  # Windows
-            os.startfile(final_preview_path)
-        elif os.name == 'posix':  # macOS/Linux
-            # Try generic opener
-            import subprocess
-            try:
-                subprocess.call(('open', final_preview_path))
-            except:
-                subprocess.call(('xdg-open', final_preview_path))
+        try:
+            print(f"🖼️  Image saved at: {final_preview_path}")
+            if os.name == 'nt':  # Windows
+                os.startfile(final_preview_path)
+            elif os.name == 'posix':  # macOS/Linux
+                # Try generic opener
+                import subprocess
+                try:
+                    subprocess.call(('open', final_preview_path))
+                except FileNotFoundError:
+                    try:
+                        subprocess.call(('xdg-open', final_preview_path))
+                    except FileNotFoundError:
+                        print("ℹ️  Could not open image viewer automatically (headless environment?).")
+        except Exception as e:
+             print(f"ℹ️  Could not open image viewer: {e}")
                 
     except Exception as e:
         print(f"❌ Error generating overlay: {e}")

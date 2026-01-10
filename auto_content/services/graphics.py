@@ -1,9 +1,18 @@
 import os
 import textwrap
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageChops
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageChops, features
 import numpy as np
+
+# Monkey patch ANTIALIAS for older libraries (moviepy, pilmoji)
+if not hasattr(Image, 'ANTIALIAS'):
+    Image.ANTIALIAS = Image.Resampling.LANCZOS
+
+# Force Disable Raqm to ensure consistent "Visual" rendering across all environments.
+# This prevents Docker (which has Raqm) from double-reversing our manually reversed text.
+RAQM_SUPPORT = False
+
 from moviepy.editor import (
-    ImageClip, 
+    ImageClip,
     CompositeVideoClip,
     vfx,
     VideoFileClip,
@@ -22,10 +31,18 @@ except ImportError:
 
 class GraphicsEngine:
     def __init__(self):
+        try:
+            print(f"🔍 PIL Raqm support: {RAQM_SUPPORT}")
+            print(f"🔍 PIL libjpeg support: {features.check('jpg')}")
+            print(f"🔍 PIL libzlib support: {features.check('zlib')}")
+        except Exception as e:
+            print(f"⚠️ Could not check PIL features: {e}")
+
         self._load_assets()
 
     def _load_assets(self):
         # Load Wood Sign
+        print(f"🌲 Loading wood sign from: {Config.WOOD_IMAGE_PATH}")
         self.wood_img = Image.open(Config.WOOD_IMAGE_PATH).convert("RGBA")
         
         # Resize wood sign to be slightly wider than screen (110%)
@@ -49,6 +66,18 @@ class GraphicsEngine:
         
         try:
             print(f"Loading font from: {Config.FONT_BOLD}")
+            abs_font_path = os.path.abspath(Config.FONT_BOLD)
+            print(f"Absolute font path: {abs_font_path}")
+            
+            if not os.path.isfile(abs_font_path):
+                print(f"❌ FONT FILE MISSING at {abs_font_path}")
+                # List directory to see what's there
+                font_dir = os.path.dirname(abs_font_path)
+                if os.path.exists(font_dir):
+                    print(f"Contents of {font_dir}: {os.listdir(font_dir)}")
+                else:
+                    print(f"Directory {font_dir} does not exist!")
+            
             if os.path.exists(Config.FONT_BOLD):
                 size = os.path.getsize(Config.FONT_BOLD)
                 print(f"Font file size: {size} bytes")
@@ -58,6 +87,9 @@ class GraphicsEngine:
             
             self.title_font = ImageFont.truetype(Config.FONT_BOLD, 95) 
             self.body_font = ImageFont.truetype(Config.FONT_REGULAR, 60)
+            
+            print(f"✅ Loaded Title Font: {self.title_font.getname()}")
+            print(f"✅ Loaded Body Font: {self.body_font.getname()}")
         except OSError as e:
             print(f"OSError loading font: {e}")
             raise FileNotFoundError(f"Fonts not found or invalid at {Config.FONT_BOLD}. Error: {e}")
@@ -124,20 +156,32 @@ class GraphicsEngine:
         title_font = self.title_font
         headline_processed = TextUtils.process_hebrew(headline)
         
-        while title_font.getlength(headline_processed) > safe_width and title_font.size > 40:
+        def get_text_len(f, t):
+            # Always measure LTR because we are using Visual text
+            return f.getlength(t)
+        
+        while get_text_len(title_font, headline_processed) > safe_width and title_font.size > 40:
             title_font = ImageFont.truetype(Config.FONT_BOLD, title_font.size - 5)
             
-        headline_pos = (center_x, sign_y + 80) 
+        headline_pos = (center_x, sign_y + 60) 
         
         # --- BODY PREP ---
-        def wrap_text_by_width(text, font, max_width):
+        # 1. Respect Newlines first
+        # 2. Wrap each paragraph
+        def wrap_paragraph(text, font, max_width):
             lines = []
             words = text.split()
             current_line = []
             for word in words:
-                test_line = ' '.join(current_line + [word])
-                reshaped_test = TextUtils.process_hebrew(test_line)
-                if font.getlength(reshaped_test) <= max_width:
+                # Note: 'word' here is Logical text.
+                # When building test_line, we join logical words, THEN reverse for measurement.
+                test_line_words = current_line + [word]
+                test_line_logical = ' '.join(test_line_words)
+                
+                # Reverse for visual measurement
+                test_line_visual = TextUtils.process_hebrew(test_line_logical)
+                
+                if font.getlength(test_line_visual) <= max_width:
                     current_line.append(word)
                 else:
                     if current_line:
@@ -150,22 +194,37 @@ class GraphicsEngine:
                 lines.append(' '.join(current_line))
             return lines
 
-        body_start_y = sign_y + 145 
+        def process_body_text(body_text, font, max_width):
+            paragraphs = body_text.split('\n')
+            final_lines = []
+            for p in paragraphs:
+                if not p.strip():
+                    final_lines.append("") # Preserve empty lines
+                    continue
+                wrapped = wrap_paragraph(p, font, max_width)
+                final_lines.extend(wrapped)
+            return final_lines
+
+        body_start_y = sign_y + 135 
         sign_bottom_y = sign_y + self.wood_img.height
-        max_body_y = sign_bottom_y - 65 
+        max_body_y = sign_bottom_y - 20 
         max_available_height = max_body_y - body_start_y
         
-        current_body_size = 60
+        current_body_size = 110
         min_body_size = 25
         final_body_font = None
         final_body_lines = []
         
         while current_body_size >= min_body_size:
             temp_font = ImageFont.truetype(Config.FONT_REGULAR, current_body_size)
-            lines = wrap_text_by_width(body, temp_font, safe_width)
+            
+            # Get wrapped lines (Logical)
+            lines = process_body_text(body, temp_font, safe_width)
+            
             ascent, descent = temp_font.getmetrics()
             line_height = ascent + descent + 4 
             total_height = len(lines) * line_height
+            
             if total_height <= max_available_height:
                 final_body_font = temp_font
                 final_body_lines = lines
@@ -174,29 +233,37 @@ class GraphicsEngine:
             
         if final_body_font is None:
             final_body_font = ImageFont.truetype(Config.FONT_REGULAR, min_body_size)
-            final_body_lines = wrap_text_by_width(body, final_body_font, safe_width)
+            final_body_lines = process_body_text(body, final_body_font, safe_width)
 
         # --- DRAWING ---
 
         # Helper to draw centered text
         def draw_centered(manager, layer, position, text, font, fill, stroke_width, stroke_fill):
+            # Raqm is disabled, so we use Basic layout (no direction arg needed)
+            kwargs = {}
+
             if PILMOJI_AVAILABLE and manager:
                 try:
                     w, h = manager.getsize(text, font=font)
                     start_x = position[0] - (w // 2)
-                    start_y = position[1] - (h // 2)
+                    start_y = position[1] - (h // 2) + 5 # +5px offset for emoji alignment
                     manager.text((start_x, start_y), text, font=font, fill=fill, 
-                                 stroke_width=stroke_width, stroke_fill=stroke_fill)
-                except Exception:
+                                 stroke_width=stroke_width, stroke_fill=stroke_fill,
+                                 **kwargs)
+                except Exception as e:
+                    print(f"⚠️ Pilmoji error (fallback to ImageDraw): {e}")
                     d = ImageDraw.Draw(layer)
                     d.text(position, text, font=font, fill=fill, anchor="mm", 
-                           stroke_width=stroke_width, stroke_fill=stroke_fill)
+                           stroke_width=stroke_width, stroke_fill=stroke_fill,
+                           **kwargs)
             else:
                 d = ImageDraw.Draw(layer)
                 d.text(position, text, font=font, fill=fill, anchor="mm", 
-                       stroke_width=stroke_width, stroke_fill=stroke_fill)
+                       stroke_width=stroke_width, stroke_fill=stroke_fill,
+                       **kwargs)
 
         # 1. Draw Title to Title Layer (White + Stroke)
+        # Headline is already processed (Visual)
         draw_centered(title_pilmoji, title_layer, headline_pos, headline_processed, title_font, "white", 3, "black")
         
         # 2. Draw Body to Body Layer (White + Stroke)
@@ -204,7 +271,9 @@ class GraphicsEngine:
         ascent, descent = final_body_font.getmetrics()
         line_height = ascent + descent + 4
         for line in final_body_lines:
+             # Process line to Visual before drawing
              processed_line = TextUtils.process_hebrew(line)
+             
              line_center_y = int(current_y + line_height/2)
              pos = (center_x, line_center_y)
              draw_centered(body_pilmoji, body_layer, pos, processed_line, final_body_font, "#f0f0f0", 2, "black")
@@ -328,7 +397,8 @@ class GraphicsEngine:
                 final = CompositeVideoClip([bg_clip, bg_video_clip, main_clip, overlay_clip], size=(target_w, target_h))
                 final = final.set_duration(clip.duration) 
                 
-                output_path = os.path.join(Config.OUTPUT_DIR, f"final_{os.path.basename(input_path)}")
+                output_filename = f"final_{os.path.basename(input_path)}"
+                output_path = os.path.join(Config.OUTPUT_DIR, output_filename)
                 
                 # Write file
                 final.write_videofile(

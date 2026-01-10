@@ -5,14 +5,27 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Install system dependencies for MoviePy and Playwright
+# Install system dependencies for MoviePy, Playwright, and Pillow (Font/Raqm support)
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     libsm6 \
     libxext6 \
     git \
     curl \
+    libfreetype6-dev \
+    libfribidi-dev \
+    libharfbuzz-dev \
+    libjpeg-dev \
+    libopenjp2-7-dev \
+    fontconfig \
     && rm -rf /var/lib/apt/lists/*
+
+# Copy local fonts to system font directory
+RUN mkdir -p /usr/share/fonts/truetype/custom
+COPY auto_content/assets/fonts/ /usr/share/fonts/truetype/custom/
+
+# Refresh font cache
+RUN fc-cache -f -v
 
 # Set work directory
 WORKDIR /app
