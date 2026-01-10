@@ -133,24 +133,26 @@ async def receive_layout_choice(update: Update, context: ContextTypes.DEFAULT_TY
         # Add URL to info so it can be passed to AI
         video_info['url'] = url
 
-        # 2. Parallel Render & AI
-        def ai_task(info):
+        # 2. Sequential Execution (AI then Render) to save memory
+        description = "סרטון חדש! 🎥" # Default
+        try:
+            print("🧠 Generating AI description...")
             context_prompt = f"Video Title (User): {headline}\nVideo Body (User): {body_text}"
-            return ai_generator.generate_description(context_prompt, info)
-        
-        print("🎨 Starting render & AI generation...")
-        render_future = asyncio.to_thread(
+            # Run AI in thread
+            description = await asyncio.to_thread(ai_generator.generate_description, context_prompt, video_info)
+            print("✅ AI Description generated.")
+        except Exception as ai_e:
+            print(f"⚠️ AI Generation failed (skipping): {ai_e}")
+            description = f"{headline}\n\n{body_text}"
+
+        print("🎨 Starting video render...")
+        final_video_path = await asyncio.to_thread(
             graphics_engine.render_video, 
             video_path, 
             headline, 
             body_text,
             layout_mode 
         )
-        
-        ai_future = asyncio.to_thread(ai_task, video_info)
-        
-        final_video_path, description = await asyncio.gather(render_future, ai_future)
-        
         print(f"✅ Rendering complete: {os.path.basename(final_video_path)}")
         
         # 4. Send back

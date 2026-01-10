@@ -375,8 +375,17 @@ class GraphicsEngine:
                 main_clip = main_clip.set_position(("center", int(top_pos)))
 
                 # Blurred Background (Fills screen)
-                # Resize to fill screen height then crop width
-                bg_video_clip = bg_source_clip.resize(height=target_h)
+                # Optimization: Downscale -> Blur -> Upscale
+                # This saves massive CPU/RAM compared to blurring 1080p frames
+                blur_scale_h = 200
+                bg_video_small = bg_source_clip.resize(height=blur_scale_h)
+                
+                # Apply Blur on small frame
+                bg_video_blurred = bg_video_small.fl_image(self._gaussian_blur)
+                
+                # Resize back up to target
+                bg_video_clip = bg_video_blurred.resize(height=target_h)
+                
                 if bg_video_clip.w < target_w:
                     bg_video_clip = bg_video_clip.resize(width=target_w)
                 
@@ -386,8 +395,6 @@ class GraphicsEngine:
                 bg_video_clip = bg_video_clip.crop(x_center=int(bg_video_clip.w/2), y_center=int(bg_video_clip.h/2), 
                                                    width=target_w, height=target_h)
                 
-                # Apply Blur
-                bg_video_clip = bg_video_clip.fl_image(self._gaussian_blur)
                 bg_video_clip = bg_video_clip.set_opacity(0.4).set_position("center")
                 
                 # Overlay (Banner + Text)
