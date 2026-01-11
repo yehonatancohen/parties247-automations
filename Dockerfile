@@ -6,6 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 # Install system dependencies for MoviePy, Playwright, and Pillow (Font/Raqm support)
+# Removed libfribidi/libharfbuzz to disable Raqm and force Basic text rendering (fixes Hebrew reversal issues)
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     libsm6 \
@@ -13,8 +14,6 @@ RUN apt-get update && apt-get install -y \
     git \
     curl \
     libfreetype6-dev \
-    libfribidi-dev \
-    libharfbuzz-dev \
     libjpeg-dev \
     libopenjp2-7-dev \
     fontconfig \

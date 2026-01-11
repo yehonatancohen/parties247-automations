@@ -35,12 +35,6 @@ ai_generator = AIGenerator()
 LINK, TITLE, BODY, LAYOUT_CHOICE = range(4)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    try:
-        result = subprocess.run(['fc-list', ': family'], capture_output=True, text=True)
-        print("Installed Fonts:", result.stdout)
-    except Exception as e:
-        print(f"Error checking fonts: {e}")
     user_id = update.effective_user.id
     if user_id != Config.ALLOWED_USER_ID:
         await update.message.reply_text("⛔ גישה נדחתה.")

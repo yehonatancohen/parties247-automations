@@ -7,8 +7,10 @@ import numpy as np
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.Resampling.LANCZOS
 
-# Force Disable Raqm to ensure consistent "Visual" rendering across all environments.
-RAQM_SUPPORT = False
+try:
+    RAQM_SUPPORT = features.check("raqm")
+except Exception:
+    RAQM_SUPPORT = False
 
 from moviepy.editor import (
     ImageClip,
@@ -32,105 +34,77 @@ class GraphicsEngine:
     def __init__(self):
         try:
             print(f"🔍 PIL Raqm support: {RAQM_SUPPORT}")
-            print(f"🔍 PIL libjpeg support: {features.check('jpg')}")
-            print(f"🔍 PIL libzlib support: {features.check('zlib')}")
         except Exception as e:
             print(f"⚠️ Could not check PIL features: {e}")
 
+        # --- TEXT POSITIONING CONFIG ---
+        # Adjust these based on your ready-made overlay image
+        self.text_start_y = 330   
+        self.sign_height = 400    
+        
         self._load_assets()
 
     def _load_assets(self):
-        # Load Wood Sign
-        print(f"🌲 Loading wood sign from: {Config.WOOD_IMAGE_PATH}")
-        self.wood_img = Image.open(Config.WOOD_IMAGE_PATH).convert("RGBA")
+        # 1. Load the Single Ready-Made Overlay
+        overlay_path = getattr(Config, "READY_OVERLAY_PATH", os.path.join(Config.ASSETS_DIR, "overlay_template.png"))
         
-        # Resize wood sign to be slightly wider than screen (110%)
-        target_width = int(Config.VIDEO_SIZE[0] * 1.1)
-        aspect_ratio = self.wood_img.height / self.wood_img.width
-        new_height = int(target_width * aspect_ratio)
-        self.wood_img = self.wood_img.resize((target_width, new_height), Image.Resampling.LANCZOS)
+        print(f"🌲 Loading ready overlay from: {overlay_path}")
+        if not os.path.exists(overlay_path):
+             print(f"⚠️ Overlay template not found at {overlay_path}. Using fallback wood sign logic.")
+             overlay_path = Config.WOOD_IMAGE_PATH
         
-        # Load Parties Logo
-        logo_path = os.path.join(Config.ASSETS_DIR, "partieslogo_white.png")
-        if os.path.exists(logo_path):
-            self.logo_img = Image.open(logo_path).convert("RGBA")
-            # Resize logo to width 180px (Bigger)
-            logo_width = 180
-            logo_aspect = self.logo_img.height / self.logo_img.width
-            logo_height = int(logo_width * logo_aspect)
-            self.logo_img = self.logo_img.resize((logo_width, logo_height), Image.Resampling.LANCZOS)
-        else:
-            print(f"⚠️ Logo not found at {logo_path}")
-            self.logo_img = None
+        self.overlay_base = Image.open(overlay_path).convert("RGBA")
         
+        # Resize overlay to fit video width exactly (assuming 1080px width standard)
+        target_width = Config.VIDEO_SIZE[0]
+        if self.overlay_base.width != target_width:
+            aspect_ratio = self.overlay_base.height / self.overlay_base.width
+            new_height = int(target_width * aspect_ratio)
+            self.overlay_base = self.overlay_base.resize((target_width, new_height), Image.Resampling.LANCZOS)
+            
+        # Store height for layout calculations
+        self.overlay_height = self.overlay_base.height
+
+        # Load Fonts
         try:
             print(f"Loading font from: {Config.FONT_BOLD}")
-            abs_font_path = os.path.abspath(Config.FONT_BOLD)
-            
-            self.title_font = ImageFont.truetype(Config.FONT_BOLD, 95) 
-            self.body_font = ImageFont.truetype(Config.FONT_REGULAR, 60)
-            
-            print(f"✅ Loaded Title Font: {self.title_font.getname()}")
-            print(f"✅ Loaded Body Font: {self.body_font.getname()}")
+            # Force BASIC layout engine to bypass Raqm (fixes Hebrew double-reversal on Docker)
+            # Using ImageFont.Layout.BASIC (Enum) for Pillow 10+
+            self.title_font = ImageFont.truetype(Config.FONT_BOLD, 95, layout_engine=ImageFont.Layout.BASIC) 
+            self.body_font = ImageFont.truetype(Config.FONT_REGULAR, 60, layout_engine=ImageFont.Layout.BASIC)
         except OSError as e:
             print(f"OSError loading font: {e}")
-            raise FileNotFoundError(f"Fonts not found or invalid at {Config.FONT_BOLD}. Error: {e}")
+            raise FileNotFoundError(f"Fonts not found or invalid. Error: {e}")
 
     def _create_overlay(self, headline: str, body: str) -> str:
-        # Create transparent canvas
-        canvas = Image.new('RGBA', Config.VIDEO_SIZE, (0, 0, 0, 0))
+        # Start with the ready-made overlay as the canvas
+        canvas = self.overlay_base.copy()
         
-        # Separate layers for Title and Body to allow different shadow treatments
-        title_layer = Image.new('RGBA', Config.VIDEO_SIZE, (0, 0, 0, 0))
-        body_layer = Image.new('RGBA', Config.VIDEO_SIZE, (0, 0, 0, 0))
+        # Separate layers for Text (to allow independent shadow/processing if needed)
+        text_layer = Image.new('RGBA', canvas.size, (0, 0, 0, 0))
         
-        # Initialize Pilmoji managers
+        # Initialize Pilmoji
         if PILMOJI_AVAILABLE:
-            title_pilmoji = Pilmoji(title_layer, source=AppleEmojiSource)
-            body_pilmoji = Pilmoji(body_layer, source=AppleEmojiSource)
+            text_pilmoji = Pilmoji(text_layer, source=AppleEmojiSource)
         else:
-            title_pilmoji = None
-            body_pilmoji = None
+            text_pilmoji = None
             
-        # Place Wood Sign
-        sign_x = (Config.VIDEO_SIZE[0] - self.wood_img.width) // 2
-        sign_y = 280 
+        # Positioning Logic
+        center_x = canvas.width // 2
+        safe_width = int(canvas.width * 0.85)
         
-        # --- FIX START: Solid Opaque Backing ---
-        if self.wood_img.mode == 'RGBA':
-            r, g, b, alpha = self.wood_img.split()
-            solid_mask = alpha.point(lambda p: 255 if p > 10 else 0)
-            eroded_mask = solid_mask.filter(ImageFilter.MinFilter(5))
-            backing_mask = eroded_mask.filter(ImageFilter.GaussianBlur(1))
-            black_bg = Image.new('RGBA', self.wood_img.size, (0, 0, 0, 255))
-            canvas.paste(black_bg, (sign_x, sign_y), mask=backing_mask)
-        # --- FIX END ---
-        
-        # Paste Wood Image on Top
-        canvas.paste(self.wood_img, (sign_x, sign_y), self.wood_img)
-        
-        # Place Logo (Under the banner)
-        if self.logo_img:
-            center_x = Config.VIDEO_SIZE[0] // 2
-            logo_y = sign_y + self.wood_img.height - 5 
-            logo_x = center_x - (self.logo_img.width // 2)
-            canvas.paste(self.logo_img, (logo_x, logo_y), self.logo_img)
-        
-        # Text Bounds Calculation
-        safe_width = int(Config.VIDEO_SIZE[0] * 0.85) 
-        center_x = Config.VIDEO_SIZE[0] // 2
+        # Anchor point (Top of the "sign" area)
+        sign_y = self.text_start_y
         
         # --- HEADLINE PREP ---
         title_font = self.title_font
         headline_processed = TextUtils.process_hebrew(headline)
         
-        def get_text_len(f, t):
-            return f.getlength(t)
-        
-        while get_text_len(title_font, headline_processed) > safe_width and title_font.size > 40:
-            title_font = ImageFont.truetype(Config.FONT_BOLD, title_font.size - 5)
+        # Dynamic font scaling
+        while title_font.getlength(headline_processed) > safe_width and title_font.size > 40:
+            title_font = ImageFont.truetype(Config.FONT_BOLD, title_font.size - 5, layout_engine=ImageFont.Layout.BASIC)
             
-        headline_pos = (center_x, sign_y + 60) 
+        headline_pos = (center_x, sign_y + 85) 
         
         # --- BODY PREP ---
         def wrap_paragraph(text, font, max_width):
@@ -138,9 +112,9 @@ class GraphicsEngine:
             words = text.split()
             current_line = []
             for word in words:
+                # Build test line (Logical) -> Measure (Visual)
                 test_line_words = current_line + [word]
-                test_line_logical = ' '.join(test_line_words)
-                test_line_visual = TextUtils.process_hebrew(test_line_logical)
+                test_line_visual = TextUtils.process_hebrew(' '.join(test_line_words))
                 
                 if font.getlength(test_line_visual) <= max_width:
                     current_line.append(word)
@@ -166,60 +140,61 @@ class GraphicsEngine:
                 final_lines.extend(wrapped)
             return final_lines
 
-        body_start_y = sign_y + 135 
-        sign_bottom_y = sign_y + self.wood_img.height
-        max_body_y = sign_bottom_y - 20 
+        # Calculate Text Area Boundaries
+        # Using previous tuning: start + 155, bottom margin 45
+        body_start_y = sign_y + 155
+        max_body_y = sign_y + self.sign_height - 45 
         max_available_height = max_body_y - body_start_y
         
-        current_body_size = 110
+        current_body_size = 90
         min_body_size = 25
         final_body_font = None
         final_body_lines = []
         
+        # Fit body text to available height
         while current_body_size >= min_body_size:
-            temp_font = ImageFont.truetype(Config.FONT_REGULAR, current_body_size)
+            temp_font = ImageFont.truetype(Config.FONT_REGULAR, current_body_size, layout_engine=ImageFont.Layout.BASIC)
             lines = process_body_text(body, temp_font, safe_width)
+            
             ascent, descent = temp_font.getmetrics()
             line_height = ascent + descent + 4 
             total_height = len(lines) * line_height
             
-            if total_height <= max_available_height:
+            # If height fits OR we are at min size (force fit)
+            if total_height <= max_available_height or current_body_size == min_body_size:
                 final_body_font = temp_font
                 final_body_lines = lines
                 break
             current_body_size -= 2
             
         if final_body_font is None:
-            final_body_font = ImageFont.truetype(Config.FONT_REGULAR, min_body_size)
+            final_body_font = ImageFont.truetype(Config.FONT_REGULAR, min_body_size, layout_engine=ImageFont.Layout.BASIC)
             final_body_lines = process_body_text(body, final_body_font, safe_width)
 
         # --- DRAWING ---
         def draw_centered(manager, layer, position, text, font, fill, stroke_width, stroke_fill):
-            kwargs = {}
+            # We use Basic Layout (forced in font loader), so no special kwargs needed.
+            
             if PILMOJI_AVAILABLE and manager:
                 try:
                     w, h = manager.getsize(text, font=font)
                     start_x = position[0] - (w // 2)
                     start_y = position[1] - (h // 2) + 5 
                     manager.text((start_x, start_y), text, font=font, fill=fill, 
-                                 stroke_width=stroke_width, stroke_fill=stroke_fill,
-                                 **kwargs)
-                except Exception as e:
-                    print(f"⚠️ Pilmoji error (fallback): {e}")
+                                 stroke_width=stroke_width, stroke_fill=stroke_fill)
+                except Exception:
                     d = ImageDraw.Draw(layer)
                     d.text(position, text, font=font, fill=fill, anchor="mm", 
-                           stroke_width=stroke_width, stroke_fill=stroke_fill,
-                           **kwargs)
+                           stroke_width=stroke_width, stroke_fill=stroke_fill)
             else:
                 d = ImageDraw.Draw(layer)
                 d.text(position, text, font=font, fill=fill, anchor="mm", 
-                       stroke_width=stroke_width, stroke_fill=stroke_fill,
-                       **kwargs)
+                       stroke_width=stroke_width, stroke_fill=stroke_fill)
 
-        # Draw Title
-        draw_centered(title_pilmoji, title_layer, headline_pos, headline_processed, title_font, "white", 3, "black")
+        # 1. Draw Headline
+        draw_centered(text_pilmoji, text_layer, headline_pos, headline_processed, title_font, "white", 3, "black")
         
-        # Draw Body
+        # 2. Draw Body
         current_y = body_start_y
         ascent, descent = final_body_font.getmetrics()
         line_height = ascent + descent + 4
@@ -227,75 +202,37 @@ class GraphicsEngine:
              processed_line = TextUtils.process_hebrew(line)
              line_center_y = int(current_y + line_height/2)
              pos = (center_x, line_center_y)
-             draw_centered(body_pilmoji, body_layer, pos, processed_line, final_body_font, "#f0f0f0", 2, "black")
+             draw_centered(text_pilmoji, text_layer, pos, processed_line, final_body_font, "#f0f0f0", 3, "black")
              current_y += line_height
 
-        # Shadows
+        # --- SHADOWS ---
         def make_shadow(layer, blur_radius):
             if layer.getbbox():
                 alpha = layer.split()[3]
-                shadow = Image.new("RGBA", Config.VIDEO_SIZE, (0, 0, 0, 0))
+                shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
                 shadow.paste((0, 0, 0, 255), (0, 0), mask=alpha)
                 return shadow.filter(ImageFilter.GaussianBlur(radius=blur_radius))
             return None
 
-        title_shadow = make_shadow(title_layer, blur_radius=2)
-        if title_shadow:
-            canvas.paste(title_shadow, (4, 4), title_shadow)
-            canvas.paste(title_shadow, (8, 8), title_shadow) 
-
-        body_shadow = make_shadow(body_layer, blur_radius=2)
-        if body_shadow:
-            canvas.paste(body_shadow, (2, 2), body_shadow) 
-
-        canvas.paste(title_layer, (0, 0), title_layer)
-        canvas.paste(body_layer, (0, 0), body_layer)
+        # Create text shadow
+        text_shadow = make_shadow(text_layer, blur_radius=3)
+        
+        # Paste Order: Canvas (Overlay) -> Shadow -> Text
+        if text_shadow:
+            canvas.paste(text_shadow, (3, 3), text_shadow)
+            
+        canvas.paste(text_layer, (0, 0), text_layer)
         
         overlay_path = os.path.join(Config.TEMP_DIR, "overlay.png")
         canvas.save(overlay_path)
         return overlay_path
 
-    # =========================================================================
-    # OPTIMIZED STATIC BACKGROUND (NEW ADDITION)
-    # =========================================================================
-    def _create_static_background(self, clip):
-        """
-        Takes a single frame from the video, blurs it, and darkens it.
-        This creates a lightweight background image instead of processing
-        a full blurred video stream (which kills RAM).
-        """
-        # 1. Grab a frame (t=1.0 or start)
-        t = 1.0 if clip.duration > 1 else 0
-        frame = clip.get_frame(t)
-        
-        # 2. Convert to PIL
-        img = Image.fromarray(frame)
-        
-        # 3. Resize to cover screen height (maintain aspect)
-        aspect_ratio = img.width / img.height
-        new_height = Config.VIDEO_SIZE[1]
-        new_width = int(new_height * aspect_ratio)
-        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-        
-        # 4. Crop center to fit screen width
-        left = (new_width - Config.VIDEO_SIZE[0]) // 2
-        img = img.crop((left, 0, left + Config.VIDEO_SIZE[0], new_height))
-        
-        # 5. Heavy Blur
-        img = img.filter(ImageFilter.GaussianBlur(radius=30))
-        
-        # 6. Darken (Overlay black layer)
-        dark_layer = Image.new('RGBA', img.size, (0, 0, 0, 140)) # 140/255 opacity
-        img.paste(dark_layer, (0, 0), dark_layer)
-        
-        return np.array(img)
-
     def render_video(self, input_path: str, headline: str, body: str, layout_mode: str = 'lower', progress_callback=None) -> str:
         """
         Renders the final video.
-        layout_mode: 'lower' (crop top, center low) or 'standard' (no crop, center mid).
+        Uses scale-blur (downscale/upscale) to fix memory issues.
         """
-        print(f"🎨 Rendering video ({layout_mode}) [Optimized Mode]...")
+        print(f"🎨 Rendering video ({layout_mode})...")
         
         def make_even(n):
             n = int(n)
@@ -304,35 +241,34 @@ class GraphicsEngine:
         try:
             overlay_path = self._create_overlay(headline, body)
             
-            # Video Processing
             with VideoFileClip(input_path) as clip:
                 target_w = make_even(Config.VIDEO_SIZE[0])
                 target_h = make_even(Config.VIDEO_SIZE[1])
                 
-                # --- 1. Background (Optimized Static Image) ---
-                bg_image = self._create_static_background(clip)
-                bg_clip = ImageClip(bg_image).set_duration(clip.duration).set_position("center")
+                # Base Black Background
+                bg_clip = ColorClip(size=(target_w, target_h), color=(0, 0, 0)).set_duration(clip.duration)
                 
-                # --- 2. Main Content ---
+                # Main Video Content
                 main_clip = clip.resize(width=target_w)
                 main_clip = main_clip.resize(height=make_even(main_clip.h))
                 
-                # LAYOUT LOGIC
+                # Layout Logic
                 if layout_mode == 'lower':
-                    # Crop top (TikTok captions area)
                     crop_y = 180
-                    if main_clip.h > crop_y + 100: 
+                    if main_clip.h > crop_y + 100:
                         main_clip = main_clip.crop(y1=crop_y)
                         main_clip = main_clip.resize(height=make_even(main_clip.h))
                     
-                    target_center_y = 1250
+                    # Background source for blur
+                    bg_source_clip = clip.crop(y1=min(crop_y, clip.h - 10))
+                    
+                    target_center_y = 1250 
                 else:
                     target_center_y = target_h // 2
+                    bg_source_clip = clip
                 
-                # Calculate position
+                # Center Logic with top banner avoidance
                 top_pos = int(target_center_y - (main_clip.h / 2))
-                
-                # Prevent Banner Overlap
                 banner_safe_y = 620
                 if top_pos < banner_safe_y:
                     overlap = banner_safe_y - top_pos
@@ -342,25 +278,45 @@ class GraphicsEngine:
                         top_pos = banner_safe_y
 
                 main_clip = main_clip.set_position(("center", int(top_pos)))
+
+                # --- BACKGROUND VIDEO (DARK & CLEAN) ---
+                # Removed the blur to prevent pixelation. 
+                # We simply dim the background video against the black base.
+                bg_video_clip = bg_source_clip.resize(height=target_h) 
+                
+                # Crop center to fit screen
+                if bg_video_clip.w < target_w:
+                    bg_video_clip = bg_video_clip.resize(width=target_w)
+                    
+                bg_video_clip = bg_video_clip.resize(width=make_even(bg_video_clip.w))
+                
+                bg_video_clip = bg_video_clip.crop(x_center=bg_video_clip.w//2, y_center=bg_video_clip.h//2, 
+                                                   width=target_w, height=target_h)
+                
+                # Dim the video (Darker look)
+                bg_video_clip = bg_video_clip.set_opacity(0.25).set_position("center")
                 
                 # Overlay
                 overlay_clip = ImageClip(overlay_path).set_duration(clip.duration).set_position("center")
                 
                 # Composite
-                final = CompositeVideoClip([bg_clip, main_clip, overlay_clip], size=(target_w, target_h))
+                final = CompositeVideoClip([bg_clip, bg_video_clip, main_clip, overlay_clip], size=(target_w, target_h))
+                final = final.set_duration(clip.duration)
                 
-                output_filename = f"final_{os.path.basename(input_path)}"
+                base_name = os.path.basename(input_path)
+                output_filename = f"final_{base_name}"
                 output_path = os.path.join(Config.OUTPUT_DIR, output_filename)
                 
-                # Write file (Safe Settings for Low RAM)
+                print(f"💾 Saving video to: {output_path}")
+                
                 final.write_videofile(
                     output_path, 
                     codec='libx264', 
                     fps=24, 
-                    preset='ultrafast', # Low CPU/RAM usage
+                    preset='medium',
                     bitrate="2500k",
                     audio_codec="aac",
-                    threads=1,          # Critical for avoiding OOM
+                    threads=4,
                     logger='bar'
                 )
                 

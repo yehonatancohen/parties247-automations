@@ -16,12 +16,13 @@ class Config:
     OUTPUT_DIR = "output"
     TEMP_DIR = "temp"
     WOOD_IMAGE_PATH = os.path.join(ASSETS_DIR, "wood_sign.png")
+    # Ready-to-use overlay template (User provided)
+    READY_OVERLAY_PATH = os.path.join(ASSETS_DIR, "overlay_template.png")
     
     # Fonts
-    # Switched to Heebo temporarily because the provided Rubik-Bold.ttf is a Variable Font
-    # which Pillow loads as "Light". Heebo is a static bold font and works correctly.
-    FONT_BOLD = os.path.join(ASSETS_DIR, "fonts", "Heebo-Bold.ttf")
-    FONT_REGULAR = os.path.join(ASSETS_DIR, "fonts", "Heebo-Bold.ttf")
+    # Switched to Heebo-Bold to provide a true Bold look (800 equivalent).
+    FONT_BOLD = os.path.join(ASSETS_DIR, "fonts", "Rubik-ExtraBold.ttf")
+    FONT_REGULAR = os.path.join(ASSETS_DIR, "fonts", "Rubik-ExtraBold.ttf")
 
     # Video Settings
     VIDEO_SIZE = (1080, 1920)
