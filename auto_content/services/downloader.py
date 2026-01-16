@@ -5,6 +5,8 @@ import yt_dlp
 from playwright.sync_api import sync_playwright
 from config import Config
 
+import imageio_ffmpeg
+
 class VideoDownloader:
             @staticmethod
             def download_video(url: str) -> tuple[str, dict]:
@@ -26,12 +28,32 @@ class VideoDownloader:
             @staticmethod
             def _download_with_ytdlp(url: str, output_path: str) -> tuple[str, dict]:
                 print(f"⬇️ Downloading via yt-dlp...")
+                
+                # Setup ffmpeg: copy to temp dir as ffmpeg.exe to ensure yt-dlp finds it
+                import shutil
+                
+                # Get the source binary
+                src_ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+                
+                # Define destination
+                dest_ffmpeg = os.path.join(Config.TEMP_DIR, "ffmpeg.exe")
+                
+                # Copy if not exists or if we suspect it's stale (simple check: existence)
+                if not os.path.exists(dest_ffmpeg):
+                    print(f"⚙️ Setting up ffmpeg: {src_ffmpeg} -> {dest_ffmpeg}")
+                    try:
+                        shutil.copy2(src_ffmpeg, dest_ffmpeg)
+                    except Exception as e:
+                        print(f"⚠️ Failed to copy ffmpeg: {e}")
+                        dest_ffmpeg = src_ffmpeg # Fallback to original path
+
                 ydl_opts = {
                     'format': 'bestvideo+bestaudio/best',
                     'merge_output_format': 'mp4',
                     'outtmpl': output_path,
                     'quiet': True,
                     'no_warnings': True,
+                    'ffmpeg_location': dest_ffmpeg 
                 }
         
                 try:

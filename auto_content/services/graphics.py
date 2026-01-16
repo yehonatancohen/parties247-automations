@@ -7,6 +7,7 @@ import numpy as np
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.Resampling.LANCZOS
 
+# Check for Raqm support (essential for correct Emoji + Hebrew mixing)
 try:
     RAQM_SUPPORT = features.check("raqm")
 except Exception:
@@ -24,7 +25,7 @@ from services.text_utils import TextUtils
 
 try:
     from pilmoji import Pilmoji
-    from pilmoji.source import AppleEmojiSource
+    from pilmoji.source import AppleEmojiSource, MicrosoftEmojiSource, TwitterEmojiSource
     PILMOJI_AVAILABLE = True
 except ImportError:
     PILMOJI_AVAILABLE = False
@@ -68,10 +69,10 @@ class GraphicsEngine:
         # Load Fonts
         try:
             print(f"Loading font from: {Config.FONT_BOLD}")
-            # Force BASIC layout engine to bypass Raqm (fixes Hebrew double-reversal on Docker)
-            # Using ImageFont.Layout.BASIC (Enum) for Pillow 10+
-            self.title_font = ImageFont.truetype(Config.FONT_BOLD, 95, layout_engine=ImageFont.Layout.BASIC) 
-            self.body_font = ImageFont.truetype(Config.FONT_REGULAR, 60, layout_engine=ImageFont.Layout.BASIC)
+            # FIX: Removed layout_engine=ImageFont.Layout.BASIC
+            # We let Pillow/Raqm handle the layout so Emojis don't break.
+            self.title_font = ImageFont.truetype(Config.FONT_BOLD, 95) 
+            self.body_font = ImageFont.truetype(Config.FONT_REGULAR, 60)
         except OSError as e:
             print(f"OSError loading font: {e}")
             raise FileNotFoundError(f"Fonts not found or invalid. Error: {e}")
@@ -85,6 +86,7 @@ class GraphicsEngine:
         
         # Initialize Pilmoji
         if PILMOJI_AVAILABLE:
+            # Using AppleEmojiSource for the requested "iPhone" look
             text_pilmoji = Pilmoji(text_layer, source=AppleEmojiSource)
         else:
             text_pilmoji = None
@@ -98,13 +100,19 @@ class GraphicsEngine:
         
         # --- HEADLINE PREP ---
         title_font = self.title_font
-        headline_processed = TextUtils.process_hebrew(headline)
+        
+        # FIX: Only process Hebrew manually if Raqm (advanced layout) is missing.
+        # Manual processing breaks multi-character emojis (like rain cloud).
+        if RAQM_SUPPORT:
+            headline_processed = headline
+        else:
+            headline_processed = TextUtils.process_hebrew(headline)
         
         # Dynamic font scaling
         while title_font.getlength(headline_processed) > safe_width and title_font.size > 40:
-            title_font = ImageFont.truetype(Config.FONT_BOLD, title_font.size - 5, layout_engine=ImageFont.Layout.BASIC)
+            title_font = ImageFont.truetype(Config.FONT_BOLD, title_font.size - 5)
             
-        headline_pos = (center_x, sign_y + 85) 
+        headline_pos = (center_x, sign_y + 75) 
         
         # --- BODY PREP ---
         def wrap_paragraph(text, font, max_width):
@@ -112,9 +120,15 @@ class GraphicsEngine:
             words = text.split()
             current_line = []
             for word in words:
-                # Build test line (Logical) -> Measure (Visual)
+                # Build test line
                 test_line_words = current_line + [word]
-                test_line_visual = TextUtils.process_hebrew(' '.join(test_line_words))
+                raw_test_line = ' '.join(test_line_words)
+                
+                # Check width: use raw line if Raqm is supported, else process Hebrew first
+                if RAQM_SUPPORT:
+                    test_line_visual = raw_test_line
+                else:
+                    test_line_visual = TextUtils.process_hebrew(raw_test_line)
                 
                 if font.getlength(test_line_visual) <= max_width:
                     current_line.append(word)
@@ -141,8 +155,7 @@ class GraphicsEngine:
             return final_lines
 
         # Calculate Text Area Boundaries
-        # Using previous tuning: start + 155, bottom margin 45
-        body_start_y = sign_y + 155
+        body_start_y = sign_y + 140
         max_body_y = sign_y + self.sign_height - 45 
         max_available_height = max_body_y - body_start_y
         
@@ -153,7 +166,7 @@ class GraphicsEngine:
         
         # Fit body text to available height
         while current_body_size >= min_body_size:
-            temp_font = ImageFont.truetype(Config.FONT_REGULAR, current_body_size, layout_engine=ImageFont.Layout.BASIC)
+            temp_font = ImageFont.truetype(Config.FONT_REGULAR, current_body_size)
             lines = process_body_text(body, temp_font, safe_width)
             
             ascent, descent = temp_font.getmetrics()
@@ -168,13 +181,11 @@ class GraphicsEngine:
             current_body_size -= 2
             
         if final_body_font is None:
-            final_body_font = ImageFont.truetype(Config.FONT_REGULAR, min_body_size, layout_engine=ImageFont.Layout.BASIC)
+            final_body_font = ImageFont.truetype(Config.FONT_REGULAR, min_body_size)
             final_body_lines = process_body_text(body, final_body_font, safe_width)
 
         # --- DRAWING ---
         def draw_centered(manager, layer, position, text, font, fill, stroke_width, stroke_fill):
-            # We use Basic Layout (forced in font loader), so no special kwargs needed.
-            
             if PILMOJI_AVAILABLE and manager:
                 try:
                     w, h = manager.getsize(text, font=font)
@@ -182,10 +193,21 @@ class GraphicsEngine:
                     start_y = position[1] - (h // 2) + 5 
                     manager.text((start_x, start_y), text, font=font, fill=fill, 
                                  stroke_width=stroke_width, stroke_fill=stroke_fill)
-                except Exception:
-                    d = ImageDraw.Draw(layer)
-                    d.text(position, text, font=font, fill=fill, anchor="mm", 
-                           stroke_width=stroke_width, stroke_fill=stroke_fill)
+                except Exception as e:
+                    print(f"⚠️ Pilmoji (Apple) render failed for '{text}': {e}. Trying fallback to Twitter Source.")
+                    try:
+                         # Fallback to Twitter Source on failure
+                         with Pilmoji(layer, source=TwitterEmojiSource) as fallback_pilmoji:
+                            w, h = fallback_pilmoji.getsize(text, font=font)
+                            start_x = position[0] - (w // 2)
+                            start_y = position[1] - (h // 2) + 5
+                            fallback_pilmoji.text((start_x, start_y), text, font=font, fill=fill, 
+                                            stroke_width=stroke_width, stroke_fill=stroke_fill)
+                    except Exception as e2:
+                        print(f"❌ Fallback Pilmoji failed: {e2}. Using basic text.")
+                        d = ImageDraw.Draw(layer)
+                        d.text(position, text, font=font, fill=fill, anchor="mm", 
+                            stroke_width=stroke_width, stroke_fill=stroke_fill)
             else:
                 d = ImageDraw.Draw(layer)
                 d.text(position, text, font=font, fill=fill, anchor="mm", 
@@ -198,8 +220,14 @@ class GraphicsEngine:
         current_y = body_start_y
         ascent, descent = final_body_font.getmetrics()
         line_height = ascent + descent + 4
+        
         for line in final_body_lines:
-             processed_line = TextUtils.process_hebrew(line)
+             # FIX: Same conditional logic for body text drawing
+             if RAQM_SUPPORT:
+                 processed_line = line
+             else:
+                 processed_line = TextUtils.process_hebrew(line)
+             
              line_center_y = int(current_y + line_height/2)
              pos = (center_x, line_center_y)
              draw_centered(text_pilmoji, text_layer, pos, processed_line, final_body_font, "#f0f0f0", 3, "black")

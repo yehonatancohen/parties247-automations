@@ -4,8 +4,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Config:
+    # Environment
+    APP_ENV = os.getenv("APP_ENV", "local")
+
     # Telegram
-    TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+    if APP_ENV == "production":
+        TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+    else:
+        TELEGRAM_TOKEN = os.getenv("TELEGRAM_INT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
+
     ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID")) # אבטחה: שרק אתה תוכל להפעיל
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
@@ -13,8 +20,8 @@ class Config:
     # Use the assets directory relative to this config file (inside auto_content)
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     ASSETS_DIR = os.path.join(BASE_DIR, "assets")
-    OUTPUT_DIR = "output"
-    TEMP_DIR = "temp"
+    OUTPUT_DIR = os.path.join(BASE_DIR, "output")
+    TEMP_DIR = os.path.join(BASE_DIR, "temp")
     WOOD_IMAGE_PATH = os.path.join(ASSETS_DIR, "wood_sign.png")
     # Ready-to-use overlay template (User provided)
     READY_OVERLAY_PATH = os.path.join(ASSETS_DIR, "overlay_template.png")

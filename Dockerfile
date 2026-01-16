@@ -4,6 +4,7 @@ FROM python:3.12-slim
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV APP_ENV=production
 
 # Install system dependencies for MoviePy, Playwright, and Pillow (Font/Raqm support)
 # Removed libfribidi/libharfbuzz to disable Raqm and force Basic text rendering (fixes Hebrew reversal issues)
