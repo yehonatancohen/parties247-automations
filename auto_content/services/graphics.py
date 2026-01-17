@@ -20,8 +20,8 @@ from moviepy.editor import (
     VideoFileClip,
     ColorClip
 )
-from config import Config
-from services.text_utils import TextUtils
+from ..config import Config
+from .text_utils import TextUtils
 
 try:
     from pilmoji import Pilmoji
@@ -257,98 +257,41 @@ class GraphicsEngine:
 
     def render_video(self, input_path: str, headline: str, body: str, layout_mode: str = 'lower', progress_callback=None) -> str:
         """
-        Renders the final video.
-        Uses scale-blur (downscale/upscale) to fix memory issues.
+        Renders the final video using a raw ffmpeg command.
         """
+        import subprocess
+
         print(f"🎨 Rendering video ({layout_mode})...")
         
-        def make_even(n):
-            n = int(n)
-            return n if n % 2 == 0 else n + 1
+        overlay_path = self._create_overlay(headline, body)
+        
+        base_name = os.path.basename(input_path)
+        output_filename = f"final_{base_name}"
+        output_path = os.path.join(Config.OUTPUT_DIR, output_filename)
+
+        ffmpeg_cmd = [
+            'ffmpeg',
+            '-i', input_path,
+            '-i', overlay_path,
+            '-filter_complex',
+            "[0:v]setpts=PTS/1.05,crop=in_w*0.96:in_h*0.96,scale=1080:1920,eq=gamma=1.05,noise=alls=1:allf=t[v];" +
+            "[0:a]atempo=1.05[a];" +
+            "[v][1:v]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2[out]",
+            '-map', '[out]',
+            '-map', '[a]',
+            '-c:v', 'libx264',
+            '-c:a', 'aac',
+            '-preset', 'medium',
+            '-b:v', '2500k',
+            '-y', # Overwrite output file if it exists
+            '-map_metadata', '-1',
+            output_path
+        ]
 
         try:
-            overlay_path = self._create_overlay(headline, body)
-            
-            with VideoFileClip(input_path) as clip:
-                target_w = make_even(Config.VIDEO_SIZE[0])
-                target_h = make_even(Config.VIDEO_SIZE[1])
-                
-                # Base Black Background
-                bg_clip = ColorClip(size=(target_w, target_h), color=(0, 0, 0)).set_duration(clip.duration)
-                
-                # Main Video Content
-                main_clip = clip.resize(width=target_w)
-                main_clip = main_clip.resize(height=make_even(main_clip.h))
-                
-                # Layout Logic
-                if layout_mode == 'lower':
-                    crop_y = 180
-                    if main_clip.h > crop_y + 100:
-                        main_clip = main_clip.crop(y1=crop_y)
-                        main_clip = main_clip.resize(height=make_even(main_clip.h))
-                    
-                    # Background source for blur
-                    bg_source_clip = clip.crop(y1=min(crop_y, clip.h - 10))
-                    
-                    target_center_y = 1250 
-                else:
-                    target_center_y = target_h // 2
-                    bg_source_clip = clip
-                
-                # Center Logic with top banner avoidance
-                top_pos = int(target_center_y - (main_clip.h / 2))
-                banner_safe_y = 620
-                if top_pos < banner_safe_y:
-                    overlap = banner_safe_y - top_pos
-                    if main_clip.h > overlap + 50:
-                        main_clip = main_clip.crop(y1=int(overlap))
-                        main_clip = main_clip.resize(height=make_even(main_clip.h))
-                        top_pos = banner_safe_y
-
-                main_clip = main_clip.set_position(("center", int(top_pos)))
-
-                # --- BACKGROUND VIDEO (DARK & CLEAN) ---
-                # Removed the blur to prevent pixelation. 
-                # We simply dim the background video against the black base.
-                bg_video_clip = bg_source_clip.resize(height=target_h) 
-                
-                # Crop center to fit screen
-                if bg_video_clip.w < target_w:
-                    bg_video_clip = bg_video_clip.resize(width=target_w)
-                    
-                bg_video_clip = bg_video_clip.resize(width=make_even(bg_video_clip.w))
-                
-                bg_video_clip = bg_video_clip.crop(x_center=bg_video_clip.w//2, y_center=bg_video_clip.h//2, 
-                                                   width=target_w, height=target_h)
-                
-                # Dim the video (Darker look)
-                bg_video_clip = bg_video_clip.set_opacity(0.25).set_position("center")
-                
-                # Overlay
-                overlay_clip = ImageClip(overlay_path).set_duration(clip.duration).set_position("center")
-                
-                # Composite
-                final = CompositeVideoClip([bg_clip, bg_video_clip, main_clip, overlay_clip], size=(target_w, target_h))
-                final = final.set_duration(clip.duration)
-                
-                base_name = os.path.basename(input_path)
-                output_filename = f"final_{base_name}"
-                output_path = os.path.join(Config.OUTPUT_DIR, output_filename)
-                
-                print(f"💾 Saving video to: {output_path}")
-                
-                final.write_videofile(
-                    output_path, 
-                    codec='libx264', 
-                    fps=24, 
-                    preset='medium',
-                    bitrate="2500k",
-                    audio_codec="aac",
-                    threads=4,
-                    logger='bar'
-                )
-                
+            print(f"💾 Saving video to: {output_path}")
+            subprocess.run(ffmpeg_cmd, check=True)
             return output_path
-        except Exception as e:
+        except subprocess.CalledProcessError as e:
             print(f"Error in render_video: {e}")
             raise e
