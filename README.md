@@ -50,7 +50,7 @@ The easiest way to run the bot with all dependencies (FFmpeg, Chromium, etc.) co
    ```
 2. **Run:**
    ```bash
-   docker run -d --name parties-bot --env-file .env -v ${PWD}/auto_content/output:/app/auto_content/output parties-bot
+   docker run -d --name parties-bot --env-file .env -v ${PWD}/src/output:/app/output parties-bot
    ```
 
 ## 🤖 Usage
@@ -61,10 +61,20 @@ The easiest way to run the bot with all dependencies (FFmpeg, Chromium, etc.) co
 5. **Choose Layout:** Select between Standard or Lower (for TikToks with captions).
 6. **Wait:** The bot will download, design, and render the video, then send it back with an AI-generated viral caption.
 
+## 🧪 Testing
+This project includes a test script to quickly check the overlay generation without running the full video processing pipeline.
+
+### Running the Overlay Test
+To test the overlay creation, run the following command from the root directory:
+```bash
+python tests/test_overlay.py
+```
+This will generate an `overlay.png` file in the `src/temp` directory. You can inspect this file to verify the appearance of the headline and body text on the overlay.
+
 ## 🛠️ Project Structure
 ```text
 parties247-automations/
-├── auto_content/
+├── src/
 │   ├── main.py             # Bot entry point & conversation logic
 │   ├── config.py           # Paths and settings
 │   ├── assets/             # Branding images & fonts
@@ -73,6 +83,8 @@ parties247-automations/
 │       ├── downloader.py   # Stealth Playwright/yt-dlp logic
 │       ├── graphics.py     # MoviePy rendering engine
 │       └── text_utils.py   # Hebrew RTL handling
+├── tests/
+│   └── test_overlay.py     # Test script for overlay generation
 ├── Dockerfile              # Container configuration
 └── requirements.txt        # Python dependencies
 ```

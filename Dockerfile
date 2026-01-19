@@ -6,8 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV APP_ENV=production
 
-# Install system dependencies for MoviePy, Playwright, and Pillow (Font/Raqm support)
-# Removed libfribidi/libharfbuzz to disable Raqm and force Basic text rendering (fixes Hebrew reversal issues)
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     libsm6 \
@@ -22,7 +21,7 @@ RUN apt-get update && apt-get install -y \
 
 # Copy local fonts to system font directory
 RUN mkdir -p /usr/share/fonts/truetype/custom
-COPY auto_content/assets/fonts/ /usr/share/fonts/truetype/custom/
+COPY src/assets/fonts/ /usr/share/fonts/truetype/custom/
 
 # Refresh font cache
 RUN fc-cache -f -v
@@ -39,10 +38,10 @@ RUN playwright install chromium
 RUN playwright install-deps chromium
 
 # Copy project files
-COPY . .
+COPY src/ .
 
 # Ensure necessary directories exist
-RUN mkdir -p auto_content/temp auto_content/output
+RUN mkdir -p temp output
 
 # Run the bot
-CMD ["python", "auto_content/main.py"]
+CMD ["python", "main.py"]
