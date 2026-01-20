@@ -13,7 +13,14 @@ class Config:
     else:
         TELEGRAM_TOKEN = os.getenv("TELEGRAM_INT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
 
-    ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID")) # אבטחה: שרק אתה תוכל להפעיל
+    _raw_allowed_user_id = os.getenv("ALLOWED_USER_ID")
+    if not _raw_allowed_user_id:
+        ALLOWED_USER_ID = None
+    else:
+        try:
+            ALLOWED_USER_ID = int(_raw_allowed_user_id)
+        except ValueError as exc:
+            raise ValueError("ALLOWED_USER_ID must be an integer.") from exc
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
     # Paths
