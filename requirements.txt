@@ -7,7 +7,7 @@ python-telegram-bot
 python-telegram-bot[job-queue]
 python-dotenv
 pilmoji==2.0.4
-emoji==1.7.0
+emoji
 requests
 g4f
 curl_cffi

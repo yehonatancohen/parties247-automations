@@ -11,13 +11,14 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 's
 from services.graphics import GraphicsEngine
 from config import Config
 
-def test_overlay_creation():
+def test_overlay_creation_with_emojis(mocker):
     """
-    Tests the creation of an overlay image without running the full video processing pipeline.
+    Tests the creation of an overlay image with Hebrew and emojis,
+    and verifies the output overlay file is generated successfully.
     """
     # --- Configuration ---
     Config.ensure_dirs()
-    headline = "🎉 מסיבת יום הולדת שמח! 🥳"
+    headline = "בדיקה 🎉"
     body = "חוגגים לגיל 5! 🎂 המון מזל טוב, אושר, ועושר. שתהיה לך שנה נפלאה ומתוקה. 💖 אוהבים, כל המשפחה. 👨‍👩‍👧‍👦"
 
     # --- Engine Initialization ---
@@ -25,19 +26,27 @@ def test_overlay_creation():
 
     # --- Create a dummy video file ---
     dummy_video_path = os.path.join(Config.TEMP_DIR, "dummy_video.mp4")
-    if not os.path.exists(dummy_video_path):
-        ret_code = os.system(f"ffmpeg -f lavfi -i testsrc=size=1920x1080:rate=30:duration=10 -pix_fmt yuv420p {dummy_video_path}")
-        if ret_code != 0:
-            print("⚠️ ffmpeg not found. Dummy video not created.")
+    # Create an empty dummy video file
+    with open(dummy_video_path, 'a'):
+        os.utime(dummy_video_path, None)
 
+    # Mock subprocess.run to prevent actual ffmpeg calls
+    mock_subprocess_run = mocker.patch('subprocess.run')
+    mock_subprocess_run.return_value.returncode = 0
+    mock_subprocess_run.return_value.stdout = b'10.0' # for ffprobe
+    mock_subprocess_run.return_value.stderr = b''
 
     # --- Overlay Creation ---
+    overlay_path = None
     try:
-        # Test with layout_mode='lower'
-        output_path = graphics_engine.render_video(dummy_video_path, headline, body, layout_mode='lower')
-        print(f"✅ Video rendered successfully at: {output_path}")
+        # Directly call _create_overlay to generate the overlay image
+        overlay_path = graphics_engine._create_overlay(headline, body)
+        print(f"✅ Overlay image created successfully at: {overlay_path}")
     except Exception as e:
-        print(f"❌ Error rendering video: {e}")
+        print(f"❌ Error creating overlay image: {e}")
+        raise e
 
-if __name__ == "__main__":
-    test_overlay_creation()
+    # --- Assertion ---
+    assert overlay_path is not None
+    assert os.path.exists(overlay_path)
+

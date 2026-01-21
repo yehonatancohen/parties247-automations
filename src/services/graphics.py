@@ -35,12 +35,12 @@ except ImportError:
 class GraphicsEngine:
     def __init__(self):
         try:
-            print(f"🔍 PIL Raqm support: {RAQM_SUPPORT}")
+            print(f"[INFO] PIL Raqm support: {RAQM_SUPPORT}")
         except Exception as e:
-            print(f"⚠️ Could not check PIL features: {e}")
+            print(f"[WARN] Could not check PIL features: {e}")
 
         # --- TEXT POSITIONING ---
-        self.text_start_y = 330   
+        self.text_start_y = 350   
         self.sign_height = 400    
         
         self._load_assets()
@@ -48,9 +48,9 @@ class GraphicsEngine:
     def _load_assets(self):
         overlay_path = getattr(Config, "READY_OVERLAY_PATH", os.path.join(Config.ASSETS_DIR, "overlay_template.png"))
         
-        print(f"🌲 Loading ready overlay from: {overlay_path}")
+        print(f"[INFO] Loading ready overlay from: {overlay_path}")
         if not os.path.exists(overlay_path):
-             print(f"⚠️ Overlay template not found. Using fallback.")
+             print(f"[WARN] Overlay template not found. Using fallback.")
              overlay_path = Config.WOOD_IMAGE_PATH
         
         self.overlay_base = Image.open(overlay_path).convert("RGBA")
@@ -64,7 +64,7 @@ class GraphicsEngine:
         self.overlay_height = self.overlay_base.height
 
         try:
-            self.title_font = ImageFont.truetype(Config.FONT_BOLD, 95) 
+            self.title_font = ImageFont.truetype(Config.FONT_BOLD, 105) 
             self.body_font = ImageFont.truetype(Config.FONT_REGULAR, 60)
         except OSError as e:
             raise FileNotFoundError(f"Fonts not found: {e}")
@@ -80,7 +80,7 @@ class GraphicsEngine:
             text_pilmoji = None
             
         center_x = canvas.width // 2
-        safe_width = int(canvas.width * 0.85)
+        safe_width = int(canvas.width * 0.8)
         sign_y = self.text_start_y
         
         # --- HEADLINE PREP ---
@@ -94,7 +94,7 @@ class GraphicsEngine:
         while title_font.getlength(headline_processed) > safe_width and title_font.size > 40:
             title_font = ImageFont.truetype(Config.FONT_BOLD, title_font.size - 5)
             
-        headline_pos = (center_x, sign_y + 95) 
+        headline_pos = (center_x, sign_y + 80) 
         
         # --- BODY PREP ---
         def wrap_paragraph(text, font, max_width):
@@ -134,11 +134,11 @@ class GraphicsEngine:
                 final_lines.extend(wrapped)
             return final_lines
 
-        body_start_y = sign_y + 140
+        body_start_y = sign_y + 150
         max_body_y = sign_y + self.sign_height - 45 
         max_available_height = max_body_y - body_start_y
         
-        current_body_size = 90
+        current_body_size = 60
         min_body_size = 25
         final_body_font = None
         final_body_lines = []
@@ -228,8 +228,11 @@ class GraphicsEngine:
         """
         import subprocess
         import json
+        import imageio_ffmpeg
+        
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
 
-        print(f"🎨 Rendering video ({layout_mode})...")
+        print(f"[INFO] Rendering video ({layout_mode})...")
         
         overlay_path = self._create_overlay(headline, body)
         
@@ -254,9 +257,12 @@ class GraphicsEngine:
                 clip_duration = 5 # seconds
                 start_time = max(0, (duration / 2) - (clip_duration / 2))
 
+                # Calculate shift: Middle of (Screen Bottom + Banner Bottom) - Middle of Screen
+                shift_y = int((self.text_start_y + self.sign_height) / 2)
+                
                 video_filters = (
                     f"trim=start={start_time}:duration={clip_duration},setpts=PTS-STARTPTS,"
-                    "crop=in_w*0.96:in_h*0.96,"
+                    "crop=in_w:1920:0:(in_h-1920)/2,"
                     "scale=1080:1920,"
                     "eq=gamma=1.03:saturation=1.05:contrast=1.02,"
                     "noise=alls=1.5:allf=t,"
@@ -274,6 +280,7 @@ class GraphicsEngine:
                     "unsharp=3:3:0.5"
                 )
         else:
+            shift_y = 0
             video_filters = (
                 "setpts=PTS/1.05,"
                 "crop=in_w*0.96:in_h*0.96,"
@@ -290,15 +297,28 @@ class GraphicsEngine:
             "highpass=f=15,"
             "lowpass=f=19000"
         )
+        
+        # Apply shift only for 'lower' mode logic (which is captured by shift_y > 0 if derived from layout)
+        # However, layout_mode determines shift. 
+        # Re-evaluating shift based on mode for clarity in main_transform construction
+        if layout_mode == 'lower':
+             shift_val = int((self.text_start_y + self.sign_height) / 2)
+             main_transform = f"pad=1080:{1920+shift_val}:0:{shift_val}:black,crop=1080:1920:0:0,"
+        else:
+             main_transform = ""
 
         ffmpeg_cmd = [
-            'ffmpeg',
+            ffmpeg_exe,
             '-i', input_path,
             '-i', overlay_path,
             '-filter_complex',
             f"[0:v]{video_filters}[v_proc];" +
             f"[0:a]{audio_filters}[a_proc];" +
-            f"[v_proc][1:v]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2[out]",
+            f"[v_proc]split[v_to_main][v_copy];" +
+            f"[v_to_main]{main_transform}drawbox=0:0:1080:{self.text_start_y + 70}:color=black:t=fill[v_masked];" +
+            f"[v_copy]crop=1080:{self.text_start_y + 70}:0:(in_h-{self.text_start_y + 70})/2+300,format=rgba,colorchannelmixer=aa=0.25[v_filler];" +
+            f"[v_masked][v_filler]overlay=0:0[v_staged];" +
+            f"[v_staged][1:v]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2[out]",
             '-map', '[out]',
             '-map', '[a_proc]',
             '-c:v', 'libx264',
@@ -313,11 +333,11 @@ class GraphicsEngine:
         ]
 
         try:
-            print(f"💾 Saving video to: {output_path}")
+            print(f"[INFO] Saving video to: {output_path}")
             subprocess.run(ffmpeg_cmd, check=True)
             return output_path
         except FileNotFoundError:
-            print("⚠️ ffmpeg not found. Video not rendered.")
+            print("[WARN] ffmpeg not found. Video not rendered.")
             return output_path
         except subprocess.CalledProcessError as e:
             print(f"Error in render_video: {e}")
