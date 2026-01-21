@@ -1,7 +1,7 @@
 from bidi.algorithm import get_display
 import emoji
 
-def process_hebrew_with_emojis(text: str) -> str:
+def process_hebrew_with_emojis(text: str, reorder_content: bool = True) -> str:
     """
     Processes a string containing both Hebrew text and emojis.
     Only the Hebrew parts are processed for RTL display, while emojis are preserved.
@@ -24,7 +24,10 @@ def process_hebrew_with_emojis(text: str) -> str:
     processed_parts = []
     for part in parts:
         if part['type'] == 'text':
-            processed_parts.append(get_display(part['content'], base_dir='R'))
+            if reorder_content:
+                processed_parts.append(get_display(part['content'], base_dir='R'))
+            else:
+                processed_parts.append(part['content'])
         else:
             processed_parts.append(part['content'])
             
@@ -33,11 +36,11 @@ def process_hebrew_with_emojis(text: str) -> str:
 
 class TextUtils:
     @staticmethod
-    def process_hebrew(text: str) -> str:
+    def process_hebrew(text: str, reorder_content: bool = True) -> str:
         """
         Handles RTL issues for Pillow/MoviePy.
         Strategy: Visual (Legacy).
         We force Pillow's Basic layout (by disabling Raqm in graphics.py),
         so we need full Visual text (reversed).
         """
-        return process_hebrew_with_emojis(text)
+        return process_hebrew_with_emojis(text, reorder_content=reorder_content)

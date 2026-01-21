@@ -86,10 +86,7 @@ class GraphicsEngine:
         # --- HEADLINE PREP ---
         title_font = self.title_font
         
-        if RAQM_SUPPORT:
-            headline_processed = headline
-        else:
-            headline_processed = TextUtils.process_hebrew(headline)
+        headline_processed = TextUtils.process_hebrew(headline, reorder_content=not RAQM_SUPPORT)
         
         while title_font.getlength(headline_processed) > safe_width and title_font.size > 40:
             title_font = ImageFont.truetype(Config.FONT_BOLD, title_font.size - 5)
@@ -105,10 +102,7 @@ class GraphicsEngine:
                 test_line_words = current_line + [word]
                 raw_test_line = ' '.join(test_line_words)
                 
-                if RAQM_SUPPORT:
-                    test_line_visual = raw_test_line
-                else:
-                    test_line_visual = TextUtils.process_hebrew(raw_test_line)
+                test_line_visual = TextUtils.process_hebrew(raw_test_line, reorder_content=not RAQM_SUPPORT)
                 
                 if font.getlength(test_line_visual) <= max_width:
                     current_line.append(word)
@@ -195,10 +189,7 @@ class GraphicsEngine:
         line_height = ascent + descent + 4
         
         for line in final_body_lines:
-             if RAQM_SUPPORT:
-                 processed_line = line
-             else:
-                 processed_line = TextUtils.process_hebrew(line)
+             processed_line = TextUtils.process_hebrew(line, reorder_content=not RAQM_SUPPORT)
              
              line_center_y = int(current_y + line_height/2)
              pos = (center_x, line_center_y)
@@ -262,8 +253,8 @@ class GraphicsEngine:
                 
                 video_filters = (
                     f"trim=start={start_time}:duration={clip_duration},setpts=PTS-STARTPTS,"
-                    "crop=in_w:1920:0:(in_h-1920)/2,"
-                    "scale=1080:1920,"
+                    "scale=1080:1920:force_original_aspect_ratio=increase,"
+                    "crop=1080:1920:(iw-ow)/2:(ih-oh)/2,"
                     "eq=gamma=1.03:saturation=1.05:contrast=1.02,"
                     "noise=alls=1.5:allf=t,"
                     "vignette=PI/20,"
