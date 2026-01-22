@@ -9,7 +9,7 @@ jobs:
       - run:
           name: "Build Docker image"
           command: |
-            docker build -t ${DOCKERHUB_USERNAME}/parties247-automations:latest .
+            docker build . -t ${DOCKERHUB_USERNAME}/parties247-automations:latest
       - run:
           name: "Login to Docker Hub"
           command: |
