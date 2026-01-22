@@ -17,6 +17,8 @@ RUN apt-get update && apt-get install -y \
     libjpeg-dev \
     libopenjp2-7-dev \
     fontconfig \
+    tesseract-ocr \
+    tesseract-ocr-heb \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy local fonts to system font directory
@@ -39,6 +41,7 @@ RUN playwright install-deps chromium
 
 # Copy project files
 COPY src/ .
+COPY tests/ tests/
 
 # Ensure necessary directories exist
 RUN mkdir -p temp output

@@ -14,3 +14,6 @@ curl_cffi
 google-generativeai
 playwright
 flask
+pytesseract
+pytest
+pytest-mock

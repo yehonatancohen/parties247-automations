@@ -11,7 +11,7 @@ jobs:
       - run:
           name: "Build Docker image"
           command: |
-            docker build . -t yehonatancohen/parties247-automations:latest
+            docker build . -t yehonatancohen/parties247-auto:latest
       - run:
           name: "Login to Docker Hub"
           command: |
@@ -19,7 +19,11 @@ jobs:
       - run:
           name: "Push image to Docker Hub"
           command: |
-            docker push yehonatancohen/parties247-automations:latest
+            docker push yehonatancohen/parties247-auto:latest
+      - run:
+          name: "Run Tests in Docker"
+          command: |
+             docker run --rm yehonatancohen/parties247-auto:latest pytest tests/
 
 workflows:
   build-and-deploy:

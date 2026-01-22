@@ -6,6 +6,7 @@ import imageio_ffmpeg
 
 # Add src to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from services.graphics import GraphicsEngine
 from config import Config
