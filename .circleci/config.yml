@@ -9,15 +9,15 @@ jobs:
       - run:
           name: "Build Docker image"
           command: |
-            docker build . -t ${DOCKERHUB_USERNAME}/parties247-automations:latest
+            docker build . -t yehonatancohen/parties247-automations:latest
       - run:
           name: "Login to Docker Hub"
           command: |
-            echo ${DOCKERHUB_PASSWORD} | docker login -u ${DOCKERHUB_USERNAME} --password-stdin
+            echo ${DOCKERHUB_PASSWORD} | docker login -u yehonatancohen --password-stdin
       - run:
           name: "Push image to Docker Hub"
           command: |
-            docker push ${DOCKERHUB_USERNAME}/parties247-automations:latest
+            docker push yehonatancohen/parties247-automations:latest
 
 workflows:
   build-and-deploy:
