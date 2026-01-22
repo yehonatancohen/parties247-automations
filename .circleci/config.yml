@@ -6,8 +6,6 @@ jobs:
       - image: cimg/base:2023.01
     steps:
       - checkout
-      - setup_remote_docker:
-          version: 20.10.12
       - run:
           name: "Build Docker image"
           command: |
