@@ -48,4 +48,4 @@ workflows:
       - build-and-push:
           filters:
             branches:
-              only: main
+              only: master
