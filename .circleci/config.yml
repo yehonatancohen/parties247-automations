@@ -13,8 +13,8 @@ workflows:
           platform: linux/arm64
           use_buildkit: true
           login_server: https://index.docker.io/v1/
-          docker_username: $DOCKER_USER
-          docker_password: $DOCKER_PASS
+          docker_username: $DOCKERHUB_USERNAME
+          docker_password: $DOCKERHUB_PASSWORD
           filters:
             branches:
               only: master
