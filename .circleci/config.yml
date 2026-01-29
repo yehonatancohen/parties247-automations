@@ -1,7 +1,7 @@
 version: 2.1
 
 orbs:
-  docker: circleci/docker@2.4.0
+  docker: circleci/docker@2.10.0
 
 jobs:
   build-and-push:
@@ -13,6 +13,10 @@ jobs:
       - setup_remote_docker:
           version: 20.10.14
           docker_layer_caching: true
+
+      - run:
+          name: Install QEMU for Multi-Arch Support
+          command: docker run --privileged --rm tonistiigi/binfmt --install all
 
       - docker/install-docker-buildx
 
