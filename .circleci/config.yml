@@ -1,35 +1,22 @@
 version: 2.1
 
 orbs:
-  docker: circleci/docker@2.4.0
+  docker: circleci/docker@3.0.1
 
 jobs:
   build-and-push:
-    docker:
-      - image: cimg/base:stable
+    executor: docker/docker
     steps:
       - checkout
-
-      - setup_remote_docker:
-          version: 20.10.14
-          docker_layer_caching: true
-
-      - docker/install-docker-buildx
-
-      - docker/login:
-          username: $DOCKER_USER
-          password: $DOCKER_PASS
-
-      - run:
-          name: Build and Push Docker Image (ARM64)
-          command: |
-            docker buildx create --name mybuilder --use
-            
-            docker buildx build \
-              --platform linux/arm64 \
-              -t yehonatancohen/parties247-auto:latest \
-              --push .
-
+      - docker/publish:
+          image: yehonatancohen/parties247-auto
+          tag: latest
+          platform: linux/arm64
+          use_buildkit: true
+          login_server: https://index.docker.io/v1/
+          docker_username: $DOCKER_USER
+          docker_password: $DOCKER_PASS
+          
 workflows:
   version: 2
   build_pipeline:
@@ -37,4 +24,4 @@ workflows:
       - build-and-push:
           filters:
             branches:
-              only: master 
+              only: master
