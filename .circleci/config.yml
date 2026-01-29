@@ -1,35 +1,40 @@
 version: 2.1
 
+orbs:
+  docker: circleci/docker@2.4.0
+
 jobs:
   build-and-push:
     docker:
       - image: cimg/base:stable
     steps:
       - checkout
+
       - setup_remote_docker:
-          version: 20.10.24
+          version: 20.10.14
+          docker_layer_caching: true
+
+      - docker/install-docker-buildx
+
+      - docker/login:
+          username: $DOCKER_USER
+          password: $DOCKER_PASS
+
       - run:
-          name: "Build Docker image"
+          name: Build and Push Docker Image (ARM64)
           command: |
-            docker build . -t yehonatancohen/parties247-auto:latest
-      - run:
-          name: "Login to Docker Hub"
-          command: |
-            echo ${DOCKERHUB_PASSWORD} | docker login -u yehonatancohen --password-stdin
-      - run:
-          name: "Push image to Docker Hub"
-          command: |
-            docker push yehonatancohen/parties247-auto:latest
-      - run:
-          name: "Run Tests in Docker"
-          command: |
-             docker run --rm yehonatancohen/parties247-auto:latest pytest tests/
+            docker buildx create --name mybuilder --use
+            
+            docker buildx build \
+              --platform linux/arm64 \
+              -t yehonatancohen/parties247-auto:latest \
+              --push .
 
 workflows:
-  build-and-deploy:
+  version: 2
+  build_pipeline:
     jobs:
       - build-and-push:
           filters:
             branches:
-              only:
-                - master
+              only: master 

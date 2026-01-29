@@ -231,57 +231,34 @@ class GraphicsEngine:
         output_filename = f"final_{base_name}"
         output_path = os.path.join(Config.OUTPUT_DIR, output_filename)
 
-        if layout_mode == 'lower':
-            try:
-                # Get video duration
-                cmd = [
-                    'ffprobe',
-                    '-v', 'error',
-                    '-show_entries', 'format=duration',
-                    '-of', 'default=noprint_wrappers=1:nokey=1',
-                    input_path
-                ]
-                result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-                duration = float(result.stdout)
-                
-                # Calculate the middle of the video
-                clip_duration = 5 # seconds
-                start_time = max(0, (duration / 2) - (clip_duration / 2))
-
-                # Calculate shift: Middle of (Screen Bottom + Banner Bottom) - Middle of Screen
-                shift_y = int((self.text_start_y + self.sign_height) / 2)
-                
-                video_filters = (
-                    f"trim=start={start_time}:duration={clip_duration},setpts=PTS-STARTPTS,"
-                    "scale=1080:1920:force_original_aspect_ratio=increase,"
-                    "crop=1080:1920:(iw-ow)/2:(ih-oh)/2,"
-                    "eq=gamma=1.03:saturation=1.05:contrast=1.02,"
-                    "noise=alls=1.5:allf=t,"
-                    "vignette=PI/20,"
-                    "unsharp=3:3:0.5"
-                )
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                 video_filters = (
-                    "setpts=PTS/1.05,"
-                    "crop=in_w*0.96:in_h*0.96,"
-                    "scale=1080:1920,"
-                    "eq=gamma=1.03:saturation=1.05:contrast=1.02,"
-                    "noise=alls=1.5:allf=t,"
-                    "vignette=PI/20,"
-                    "unsharp=3:3:0.5"
-                )
-        else:
-            shift_y = 0
-            video_filters = (
-                "setpts=PTS/1.05,"
-                "crop=in_w*0.96:in_h*0.96,"
-                "scale=1080:1920,"
-                "eq=gamma=1.03:saturation=1.05:contrast=1.02,"
-                "noise=alls=1.5:allf=t,"
-                "vignette=PI/20,"
-                "unsharp=3:3:0.5"
-            )
+        # Standard filters that work for both modes (speedup + quality)
+        # Note: We used to trim to 5s here, which caused the freezing issue if audio wasn't trimmed.
+        # Now we process the full video with speedup.
         
+        # Determine shift for the text box 'hole'
+        shift_y = 0
+        if layout_mode == 'lower':
+             shift_y = int((self.text_start_y + self.sign_height) / 2)
+             # Main transform adds padding to bottom, then crops back to simulate shifting or centering
+             main_transform = f"pad=1080:{1920+shift_y}:0:{shift_y}:black,crop=1080:1920:0:0,"
+        else:
+             main_transform = ""
+
+        # Filters:
+        # 1. scale+crop to fill 1080x1920 (9:16)
+        # 2. setpts (speed up by 5% to match atempo)
+        # 3. visual enhancements (eq, noise, vignette, unsharp)
+        video_filters = (
+            "scale=1080:1920:force_original_aspect_ratio=increase,"
+            "crop=1080:1920:(iw-ow)/2:(ih-oh)/2,"
+            "setpts=PTS/1.05,"
+            "eq=gamma=1.03:saturation=1.05:contrast=1.02,"
+            "noise=alls=1.5:allf=t,"
+            "vignette=PI/20,"
+            "unsharp=3:3:0.5"
+        )
+        
+        # Audio filters: Speed up by 5%
         audio_filters = (
             "atempo=1.05,"
             "volume=0.98,"
@@ -289,15 +266,6 @@ class GraphicsEngine:
             "lowpass=f=19000"
         )
         
-        # Apply shift only for 'lower' mode logic (which is captured by shift_y > 0 if derived from layout)
-        # However, layout_mode determines shift. 
-        # Re-evaluating shift based on mode for clarity in main_transform construction
-        if layout_mode == 'lower':
-             shift_val = int((self.text_start_y + self.sign_height) / 2)
-             main_transform = f"pad=1080:{1920+shift_val}:0:{shift_val}:black,crop=1080:1920:0:0,"
-        else:
-             main_transform = ""
-
         ffmpeg_cmd = [
             ffmpeg_exe,
             '-i', input_path,
