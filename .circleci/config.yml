@@ -3,11 +3,10 @@ version: 2.1
 orbs:
   docker: circleci/docker@3.0.1
 
-jobs:
-  build-and-push:
-    executor: docker/docker
-    steps:
-      - checkout
+workflows:
+  version: 2
+  build_pipeline:
+    jobs:
       - docker/publish:
           image: yehonatancohen/parties247-auto
           tag: latest
@@ -16,12 +15,6 @@ jobs:
           login_server: https://index.docker.io/v1/
           docker_username: $DOCKER_USER
           docker_password: $DOCKER_PASS
-          
-workflows:
-  version: 2
-  build_pipeline:
-    jobs:
-      - build-and-push:
           filters:
             branches:
               only: master
