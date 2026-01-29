@@ -26,9 +26,10 @@ jobs:
             chmod +x ~/.docker/cli-plugins/docker-buildx
             docker buildx version
 
-      - docker/login:
-          username: $DOCKERHUB_USERNAME
-          password: $DOCKERHUB_PASSWORD
+      - run:
+          name: Login to Docker Hub
+          command: |
+            echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
 
       - run:
           name: Build and Push Docker Image (ARM64)
