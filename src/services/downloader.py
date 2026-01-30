@@ -52,106 +52,203 @@ class VideoDownloader:
     @staticmethod
     def _download_instagram_api(url: str, output_path: str) -> tuple[str, dict]:
         """
-        Download Instagram video using multiple fallback strategies:
-        1. yt-dlp with cookies file
-        2. Third-party API services
+        Download Instagram video using multiple third-party API services.
+        No yt-dlp - only external APIs for reliability.
         """
-        print(f"⬇️ Downloading Instagram...")
+        print(f"⬇️ Downloading Instagram via APIs...")
         metadata = {'title': 'Instagram Video', 'description': 'N/A', 'uploader': 'N/A', 'tags': []}
         
-        # Check for cookies file with actual content
-        cookies_file = None
-        if os.path.exists(Config.INSTAGRAM_COOKIES_FILE):
-            if VideoDownloader._has_valid_cookies(Config.INSTAGRAM_COOKIES_FILE):
-                cookies_file = Config.INSTAGRAM_COOKIES_FILE
-                print(f"[INFO] Using Instagram cookies from file")
+        # Extract shortcode from URL
+        import re
+        shortcode_match = re.search(r'/(?:p|reel|reels)/([A-Za-z0-9_-]+)', url)
+        if not shortcode_match:
+            raise Exception("Could not extract Instagram shortcode from URL")
+        shortcode = shortcode_match.group(1)
         
-        # Strategy 1: Try yt-dlp with cookies
-        try:
-            result = VideoDownloader._try_ytdlp_extract(url, output_path, cookies_file)
-            if result:
-                return result
-        except Exception as e:
-            print(f"[WARN] yt-dlp extraction failed: {e}")
-        
-        # Strategy 2: Try third-party APIs
+        # Try multiple API services in order
         api_funcs = [
-            VideoDownloader._try_instagram_api_1,
-            VideoDownloader._try_instagram_api_2,
-            VideoDownloader._try_instagram_api_3,
+            ("RapidAPI Style 1", lambda: VideoDownloader._try_rapidapi_1(url, shortcode)),
+            ("RapidAPI Style 2", lambda: VideoDownloader._try_rapidapi_2(url, shortcode)),
+            ("SaveFrom Style", lambda: VideoDownloader._try_savefrom(url, shortcode)),
+            ("Direct Scrape", lambda: VideoDownloader._try_direct_scrape(url, shortcode)),
+            ("GraphQL API", lambda: VideoDownloader._try_graphql_api(url, shortcode)),
         ]
         
-        for api_func in api_funcs:
+        for api_name, api_func in api_funcs:
             try:
-                video_url = api_func(url)
+                print(f"[INFO] Trying {api_name}...")
+                video_url = api_func()
                 if video_url:
-                    print(f"[INFO] Found video URL via API, downloading...")
+                    print(f"[INFO] Found video URL via {api_name}, downloading...")
                     if VideoDownloader._download_video_url(video_url, output_path, url):
                         return output_path, metadata
             except Exception as e:
-                print(f"[WARN] API failed: {e}")
+                print(f"[WARN] {api_name} failed: {e}")
                 continue
         
-        raise Exception("All Instagram download methods failed")
+        raise Exception("All Instagram API services failed")
     
     @staticmethod
-    def _has_valid_cookies(cookies_file: str) -> bool:
-        """Check if cookies file has actual cookie data (not just comments)."""
-        try:
-            with open(cookies_file, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    # Skip empty lines and comments
-                    if line and not line.startswith('#'):
-                        # Valid cookie line should have tab-separated fields
-                        if '\t' in line:
-                            return True
-            return False
-        except:
-            return False
-    
-    @staticmethod
-    def _try_ytdlp_extract(url: str, output_path: str, cookies_file: str = None) -> tuple[str, dict]:
-        """Try to extract and download using yt-dlp."""
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'extract_flat': False,
-            'socket_timeout': 30,
+    def _try_rapidapi_1(url: str, shortcode: str) -> str:
+        """Try instagram-scraper-api style endpoint."""
+        import json
+        
+        # Use a public Instagram data endpoint
+        api_url = f"https://www.instagram.com/api/v1/media/{shortcode}/info/"
+        
+        headers = {
+            'User-Agent': 'Instagram 275.0.0.27.98 Android (33/13; 420dpi; 1080x2400; Google/google; Pixel 7; panther; panther; en_US; 458229237)',
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'X-IG-App-ID': '936619743392459',
+            'X-ASBD-ID': '129477',
+            'X-IG-WWW-Claim': '0',
         }
         
-        if cookies_file and os.path.exists(cookies_file):
-            ydl_opts['cookiefile'] = cookies_file
+        resp = requests.get(api_url, headers=headers, timeout=30)
+        if resp.status_code == 200:
+            data = resp.json()
+            items = data.get('items', [])
+            if items:
+                item = items[0]
+                # Check for video_versions (for reels/videos)
+                video_versions = item.get('video_versions', [])
+                if video_versions:
+                    return video_versions[0].get('url')
+                # Check for carousel (multiple media)
+                carousel = item.get('carousel_media', [])
+                for media in carousel:
+                    if media.get('video_versions'):
+                        return media['video_versions'][0].get('url')
+        return None
+    
+    @staticmethod
+    def _try_rapidapi_2(url: str, shortcode: str) -> str:
+        """Try instagram embed with different user agent."""
+        import re
         
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            
-            if not info:
-                return None
-            
-            metadata = {
-                'title': info.get('title', 'Instagram Video'),
-                'description': info.get('description', 'N/A'),
-                'uploader': info.get('uploader', 'N/A'),
-                'tags': info.get('tags', [])
-            }
-            
-            # Find the best video URL
-            video_url = info.get('url')
-            
-            if not video_url and info.get('formats'):
-                video_formats = [f for f in info['formats'] if f.get('vcodec') != 'none' and f.get('url')]
-                if video_formats:
-                    video_formats.sort(key=lambda x: x.get('height', 0) or 0, reverse=True)
-                    video_url = video_formats[0]['url']
-            
-            if not video_url:
-                return None
-            
-            print(f"[INFO] Found video URL via yt-dlp, downloading...")
-            if VideoDownloader._download_video_url(video_url, output_path, url):
-                return output_path, metadata
+        # Try the embed endpoint with various headers
+        embed_url = f"https://www.instagram.com/p/{shortcode}/embed/captioned/"
         
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive',
+        }
+        
+        resp = requests.get(embed_url, headers=headers, timeout=30)
+        if resp.status_code == 200:
+            # Multiple patterns to find video URL
+            patterns = [
+                r'"video_url"\s*:\s*"([^"]+)"',
+                r'"contentUrl"\s*:\s*"([^"]+)"',
+                r'property="og:video"\s+content="([^"]+)"',
+                r'property="og:video:secure_url"\s+content="([^"]+)"',
+                r'"playbackUrl"\s*:\s*"([^"]+)"',
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, resp.text)
+                if match:
+                    video_url = match.group(1)
+                    # Decode unicode escapes
+                    video_url = video_url.encode('utf-8').decode('unicode_escape')
+                    video_url = video_url.replace('\\u0026', '&').replace('\\/', '/')
+                    if 'cdninstagram' in video_url or '.mp4' in video_url or 'video' in video_url:
+                        return video_url
+        return None
+    
+    @staticmethod
+    def _try_savefrom(url: str, shortcode: str) -> str:
+        """Try savefrom-style API."""
+        import re
+        
+        # Try accessing via different Instagram endpoints
+        endpoints = [
+            f"https://www.instagram.com/reel/{shortcode}/embed/",
+            f"https://www.instagram.com/p/{shortcode}/embed/",
+            f"https://www.instagram.com/tv/{shortcode}/embed/",
+        ]
+        
+        for endpoint in endpoints:
+            try:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+                }
+                resp = requests.get(endpoint, headers=headers, timeout=30)
+                if resp.status_code == 200:
+                    # Look for video URL in script tags
+                    script_match = re.search(r'<script[^>]*>(.*?)</script>', resp.text, re.DOTALL)
+                    if script_match:
+                        script_content = script_match.group(1)
+                        video_match = re.search(r'"video_url"\s*:\s*"([^"]+)"', script_content)
+                        if video_match:
+                            video_url = video_match.group(1).encode('utf-8').decode('unicode_escape')
+                            return video_url
+            except:
+                continue
+        return None
+    
+    @staticmethod
+    def _try_direct_scrape(url: str, shortcode: str) -> str:
+        """Try direct page scraping with mobile user agent."""
+        import re
+        
+        mobile_url = f"https://www.instagram.com/reel/{shortcode}/"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 12; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Sec-Fetch-Mode': 'navigate',
+        }
+        
+        resp = requests.get(mobile_url, headers=headers, timeout=30, allow_redirects=True)
+        if resp.status_code == 200:
+            # Look for video URL in page source
+            patterns = [
+                r'"video_url"\s*:\s*"([^"]+)"',
+                r'"playbackUrl"\s*:\s*"([^"]+)"',
+                r'<meta property="og:video" content="([^"]+)"',
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, resp.text)
+                if match:
+                    video_url = match.group(1)
+                    video_url = video_url.encode('utf-8').decode('unicode_escape')
+                    video_url = video_url.replace('\\u0026', '&')
+                    return video_url
+        return None
+    
+    @staticmethod
+    def _try_graphql_api(url: str, shortcode: str) -> str:
+        """Try Instagram GraphQL API endpoint."""
+        import json
+        
+        # GraphQL query hash for media info
+        query_hash = "b3055c01b4b222b8a47dc12b090e4e64"
+        variables = json.dumps({"shortcode": shortcode})
+        
+        api_url = f"https://www.instagram.com/graphql/query/?query_hash={query_hash}&variables={variables}"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': '*/*',
+            'X-Requested-With': 'XMLHttpRequest',
+        }
+        
+        try:
+            resp = requests.get(api_url, headers=headers, timeout=30)
+            if resp.status_code == 200:
+                data = resp.json()
+                media = data.get('data', {}).get('shortcode_media', {})
+                video_url = media.get('video_url')
+                if video_url:
+                    return video_url
+        except:
+            pass
         return None
     
     @staticmethod
@@ -184,110 +281,6 @@ class VideoDownloader:
         return False
     
     @staticmethod
-    def _try_instagram_api_1(url: str) -> str:
-        """Try Instagram download via embed page scraping."""
-        import re
-        shortcode_match = re.search(r'/(?:p|reel|reels)/([A-Za-z0-9_-]+)', url)
-        if not shortcode_match:
-            return None
-        
-        shortcode = shortcode_match.group(1)
-        
-        # Try embed page
-        embed_urls = [
-            f"https://www.instagram.com/reel/{shortcode}/embed/",
-            f"https://www.instagram.com/p/{shortcode}/embed/",
-            f"https://www.instagram.com/reel/{shortcode}/embed/captioned/",
-        ]
-        
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        
-        for embed_url in embed_urls:
-            try:
-                resp = requests.get(embed_url, headers=headers, timeout=30)
-                if resp.status_code == 200:
-                    # Look for video URL patterns
-                    patterns = [
-                        r'"video_url":"([^"]+)"',
-                        r'"contentUrl":"([^"]+)"',
-                        r'video_url=([^&"]+)',
-                    ]
-                    for pattern in patterns:
-                        match = re.search(pattern, resp.text)
-                        if match:
-                            video_url = match.group(1)
-                            video_url = video_url.encode('utf-8').decode('unicode_escape')
-                            video_url = video_url.replace('\\u0026', '&')
-                            if 'cdninstagram' in video_url or '.mp4' in video_url:
-                                return video_url
-            except:
-                continue
-        
-        return None
-    
-    @staticmethod
-    def _try_instagram_api_2(url: str) -> str:
-        """Try via modified mobile user agent."""
-        import re
-        
-        headers = {
-            'User-Agent': 'Instagram 219.0.0.12.117 Android',
-            'Accept': '*/*',
-        }
-        
-        try:
-            resp = requests.get(url, headers=headers, timeout=30, allow_redirects=True)
-            if resp.status_code == 200:
-                patterns = [
-                    r'"video_url":"([^"]+)"',
-                    r'"playback_url":"([^"]+)"',
-                ]
-                for pattern in patterns:
-                    match = re.search(pattern, resp.text)
-                    if match:
-                        video_url = match.group(1).encode('utf-8').decode('unicode_escape')
-                        return video_url
-        except:
-            pass
-        
-        return None
-    
-    @staticmethod
-    def _try_instagram_api_3(url: str) -> str:
-        """Try via i.instagram.com API endpoint."""
-        import re
-        
-        shortcode_match = re.search(r'/(?:p|reel|reels)/([A-Za-z0-9_-]+)', url)
-        if not shortcode_match:
-            return None
-        
-        shortcode = shortcode_match.group(1)
-        
-        # Try the i.instagram.com API
-        api_url = f"https://i.instagram.com/api/v1/media/{shortcode}/info/"
-        
-        headers = {
-            'User-Agent': 'Instagram 219.0.0.12.117 Android (26/8.0.0; 480dpi; 1080x1920; samsung; SM-G950F; dreamlte; samsungexynos8895)',
-            'X-IG-App-ID': '936619743392459',
-        }
-        
-        try:
-            resp = requests.get(api_url, headers=headers, timeout=30)
-            if resp.status_code == 200:
-                data = resp.json()
-                items = data.get('items', [])
-                if items:
-                    video_versions = items[0].get('video_versions', [])
-                    if video_versions:
-                        return video_versions[0].get('url')
-        except:
-            pass
-        
-        return None
-    
-    @staticmethod
     def _download_with_ytdlp(url: str, output_path: str) -> tuple[str, dict]:
         print(f"⬇️ Downloading via yt-dlp...")
         
@@ -314,11 +307,7 @@ class VideoDownloader:
             'retries': 3,
         }
         
-        # Add cookies if available and valid (for Instagram)
-        if "instagram.com" in url and os.path.exists(Config.INSTAGRAM_COOKIES_FILE):
-            if VideoDownloader._has_valid_cookies(Config.INSTAGRAM_COOKIES_FILE):
-                ydl_opts['cookiefile'] = Config.INSTAGRAM_COOKIES_FILE
-                print(f"[INFO] Using Instagram cookies for yt-dlp")
+        # Note: Instagram uses API-only approach, no cookies needed for yt-dlp
 
         # Internal Retry Loop for yt-dlp specifically
         max_retries = 3
