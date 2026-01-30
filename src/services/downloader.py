@@ -66,7 +66,11 @@ class VideoDownloader:
         shortcode = shortcode_match.group(1)
         
         # Try multiple API services in order
+        # First try third-party services that act as proxies (more reliable from server)
         api_funcs = [
+            ("SnapInsta API", lambda: VideoDownloader._try_snapinsta_api(url, shortcode)),
+            ("iGram API", lambda: VideoDownloader._try_igram_api(url, shortcode)),
+            ("FastDL API", lambda: VideoDownloader._try_fastdl_api(url, shortcode)),
             ("RapidAPI Style 1", lambda: VideoDownloader._try_rapidapi_1(url, shortcode)),
             ("RapidAPI Style 2", lambda: VideoDownloader._try_rapidapi_2(url, shortcode)),
             ("SaveFrom Style", lambda: VideoDownloader._try_savefrom(url, shortcode)),
@@ -87,6 +91,135 @@ class VideoDownloader:
                 continue
         
         raise Exception("All Instagram API services failed")
+    
+    @staticmethod
+    def _try_snapinsta_api(url: str, shortcode: str) -> str:
+        """Try SnapInsta.app API - a popular Instagram downloader service."""
+        import re
+        
+        # SnapInsta uses a form-based API
+        session = requests.Session()
+        
+        # First get the page to get any tokens
+        try:
+            page = session.get("https://snapinsta.app/", timeout=15, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
+            
+            # Find the token in the page
+            token_match = re.search(r'name="token"\s+value="([^"]+)"', page.text)
+            token = token_match.group(1) if token_match else ""
+            
+            # Make the API call
+            resp = session.post("https://snapinsta.app/action.php", data={
+                'url': url,
+                'token': token,
+                'action': 'post'
+            }, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Origin': 'https://snapinsta.app',
+                'Referer': 'https://snapinsta.app/'
+            }, timeout=30)
+            
+            if resp.status_code == 200:
+                # Look for video download links in response
+                video_patterns = [
+                    r'href="(https://[^"]*scontent[^"]*\.mp4[^"]*)"',
+                    r'href="(https://[^"]*cdninstagram[^"]*)".*?Download',
+                    r'"url"\s*:\s*"(https://[^"]+\.mp4[^"]*)"',
+                ]
+                for pattern in video_patterns:
+                    match = re.search(pattern, resp.text, re.IGNORECASE)
+                    if match:
+                        video_url = match.group(1)
+                        video_url = video_url.replace('\\/', '/').replace('\\u0026', '&')
+                        return video_url
+        except Exception as e:
+            print(f"[DEBUG] SnapInsta error: {e}")
+        
+        return None
+    
+    @staticmethod
+    def _try_igram_api(url: str, shortcode: str) -> str:
+        """Try iGram.io API - another Instagram downloader."""
+        import re
+        import json
+        
+        try:
+            # iGram API endpoint
+            resp = requests.post("https://api.igram.io/api/convert", 
+                json={"url": url},
+                headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Content-Type': 'application/json',
+                    'Origin': 'https://igram.io',
+                    'Referer': 'https://igram.io/'
+                },
+                timeout=30
+            )
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                # Check for video URL in response
+                if isinstance(data, list):
+                    for item in data:
+                        if item.get('url') and ('video' in item.get('url', '') or '.mp4' in item.get('url', '')):
+                            return item['url']
+                elif isinstance(data, dict):
+                    if data.get('url'):
+                        return data['url']
+                    # Try nested structure
+                    media = data.get('media', [])
+                    for item in media:
+                        if item.get('url'):
+                            return item['url']
+        except Exception as e:
+            print(f"[DEBUG] iGram error: {e}")
+        
+        return None
+    
+    @staticmethod
+    def _try_fastdl_api(url: str, shortcode: str) -> str:
+        """Try FastDL-style API - generic Instagram downloader."""
+        import re
+        
+        try:
+            # Try sssinstagram API
+            session = requests.Session()
+            
+            # Get initial page
+            page = session.get("https://sssinstagram.com/", timeout=15, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
+            
+            # Try the API endpoint
+            resp = session.post("https://sssinstagram.com/r", data={
+                'link': url
+            }, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Origin': 'https://sssinstagram.com',
+                'Referer': 'https://sssinstagram.com/'
+            }, timeout=30)
+            
+            if resp.status_code == 200:
+                # Look for video links
+                patterns = [
+                    r'href="(https://[^"]*\.mp4[^"]*)"',
+                    r'href="(https://scontent[^"]+)"',
+                    r'"downloadUrl"\s*:\s*"([^"]+)"',
+                ]
+                for pattern in patterns:
+                    match = re.search(pattern, resp.text)
+                    if match:
+                        video_url = match.group(1).replace('\\/', '/').replace('\\u0026', '&')
+                        if 'video' in video_url.lower() or '.mp4' in video_url:
+                            return video_url
+        except Exception as e:
+            print(f"[DEBUG] FastDL error: {e}")
+        
+        return None
     
     @staticmethod
     def _try_rapidapi_1(url: str, shortcode: str) -> str:
