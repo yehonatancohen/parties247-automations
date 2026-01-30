@@ -59,11 +59,12 @@ class VideoDownloader:
         print(f"⬇️ Downloading Instagram...")
         metadata = {'title': 'Instagram Video', 'description': 'N/A', 'uploader': 'N/A', 'tags': []}
         
-        # Check for cookies file
+        # Check for cookies file with actual content
         cookies_file = None
         if os.path.exists(Config.INSTAGRAM_COOKIES_FILE):
-            cookies_file = Config.INSTAGRAM_COOKIES_FILE
-            print(f"[INFO] Using Instagram cookies from file")
+            if VideoDownloader._has_valid_cookies(Config.INSTAGRAM_COOKIES_FILE):
+                cookies_file = Config.INSTAGRAM_COOKIES_FILE
+                print(f"[INFO] Using Instagram cookies from file")
         
         # Strategy 1: Try yt-dlp with cookies
         try:
@@ -92,6 +93,22 @@ class VideoDownloader:
                 continue
         
         raise Exception("All Instagram download methods failed")
+    
+    @staticmethod
+    def _has_valid_cookies(cookies_file: str) -> bool:
+        """Check if cookies file has actual cookie data (not just comments)."""
+        try:
+            with open(cookies_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    # Skip empty lines and comments
+                    if line and not line.startswith('#'):
+                        # Valid cookie line should have tab-separated fields
+                        if '\t' in line:
+                            return True
+            return False
+        except:
+            return False
     
     @staticmethod
     def _try_ytdlp_extract(url: str, output_path: str, cookies_file: str = None) -> tuple[str, dict]:
@@ -297,10 +314,11 @@ class VideoDownloader:
             'retries': 3,
         }
         
-        # Add cookies if available (for Instagram)
+        # Add cookies if available and valid (for Instagram)
         if "instagram.com" in url and os.path.exists(Config.INSTAGRAM_COOKIES_FILE):
-            ydl_opts['cookiefile'] = Config.INSTAGRAM_COOKIES_FILE
-            print(f"[INFO] Using Instagram cookies for yt-dlp")
+            if VideoDownloader._has_valid_cookies(Config.INSTAGRAM_COOKIES_FILE):
+                ydl_opts['cookiefile'] = Config.INSTAGRAM_COOKIES_FILE
+                print(f"[INFO] Using Instagram cookies for yt-dlp")
 
         # Internal Retry Loop for yt-dlp specifically
         max_retries = 3
