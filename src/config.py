@@ -56,6 +56,9 @@ class Config:
     # Ready-to-use overlay template (User provided)
     READY_OVERLAY_PATH = os.path.join(ASSETS_DIR, "overlay_template.png")
     
+    # Instagram cookies file for authenticated downloads (Netscape format)
+    INSTAGRAM_COOKIES_FILE = os.path.join(ASSETS_DIR, "instagram_cookies.txt")
+    
     # Fonts
     # Switched to Heebo-Bold to provide a true Bold look (800 equivalent).
     FONT_BOLD = os.path.join(ASSETS_DIR, "fonts", "Rubik-ExtraBold.ttf")

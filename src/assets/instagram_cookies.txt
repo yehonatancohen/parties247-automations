@@ -1,0 +1,13 @@
+# Netscape HTTP Cookie File
+# This file contains Instagram cookies for authenticated video downloads.
+# 
+# To export cookies:
+# 1. Install a browser extension like "Get cookies.txt LOCALLY" or "cookies.txt"
+# 2. Log into Instagram in your browser
+# 3. Export cookies for instagram.com in Netscape format
+# 4. Paste the cookies below this comment
+#
+# Format: domain	flag	path	secure	expiration	name	value
+# Example:
+# .instagram.com	TRUE	/	TRUE	1735689600	sessionid	your_session_id_here
+

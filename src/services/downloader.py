@@ -52,13 +52,50 @@ class VideoDownloader:
     @staticmethod
     def _download_instagram_api(url: str, output_path: str) -> tuple[str, dict]:
         """
-        Download Instagram video by extracting direct URL via yt-dlp and downloading with requests.
-        This bypasses yt-dlp's download mechanism which can fail due to ffmpeg/merge issues.
+        Download Instagram video using multiple fallback strategies:
+        1. yt-dlp with cookies file
+        2. Third-party API services
         """
-        print(f"⬇️ Downloading Instagram via direct URL extraction...")
+        print(f"⬇️ Downloading Instagram...")
         metadata = {'title': 'Instagram Video', 'description': 'N/A', 'uploader': 'N/A', 'tags': []}
         
-        # Use yt-dlp to extract info without downloading
+        # Check for cookies file
+        cookies_file = None
+        if os.path.exists(Config.INSTAGRAM_COOKIES_FILE):
+            cookies_file = Config.INSTAGRAM_COOKIES_FILE
+            print(f"[INFO] Using Instagram cookies from file")
+        
+        # Strategy 1: Try yt-dlp with cookies
+        try:
+            result = VideoDownloader._try_ytdlp_extract(url, output_path, cookies_file)
+            if result:
+                return result
+        except Exception as e:
+            print(f"[WARN] yt-dlp extraction failed: {e}")
+        
+        # Strategy 2: Try third-party APIs
+        api_funcs = [
+            VideoDownloader._try_instagram_api_1,
+            VideoDownloader._try_instagram_api_2,
+            VideoDownloader._try_instagram_api_3,
+        ]
+        
+        for api_func in api_funcs:
+            try:
+                video_url = api_func(url)
+                if video_url:
+                    print(f"[INFO] Found video URL via API, downloading...")
+                    if VideoDownloader._download_video_url(video_url, output_path, url):
+                        return output_path, metadata
+            except Exception as e:
+                print(f"[WARN] API failed: {e}")
+                continue
+        
+        raise Exception("All Instagram download methods failed")
+    
+    @staticmethod
+    def _try_ytdlp_extract(url: str, output_path: str, cookies_file: str = None) -> tuple[str, dict]:
+        """Try to extract and download using yt-dlp."""
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
@@ -66,71 +103,172 @@ class VideoDownloader:
             'socket_timeout': 30,
         }
         
+        if cookies_file and os.path.exists(cookies_file):
+            ydl_opts['cookiefile'] = cookies_file
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            
+            if not info:
+                return None
+            
+            metadata = {
+                'title': info.get('title', 'Instagram Video'),
+                'description': info.get('description', 'N/A'),
+                'uploader': info.get('uploader', 'N/A'),
+                'tags': info.get('tags', [])
+            }
+            
+            # Find the best video URL
+            video_url = info.get('url')
+            
+            if not video_url and info.get('formats'):
+                video_formats = [f for f in info['formats'] if f.get('vcodec') != 'none' and f.get('url')]
+                if video_formats:
+                    video_formats.sort(key=lambda x: x.get('height', 0) or 0, reverse=True)
+                    video_url = video_formats[0]['url']
+            
+            if not video_url:
+                return None
+            
+            print(f"[INFO] Found video URL via yt-dlp, downloading...")
+            if VideoDownloader._download_video_url(video_url, output_path, url):
+                return output_path, metadata
+        
+        return None
+    
+    @staticmethod
+    def _download_video_url(video_url: str, output_path: str, referer: str = None) -> bool:
+        """Download a video from a direct URL."""
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        }
+        if referer:
+            headers['Referer'] = referer
+        
+        for attempt in range(3):
+            try:
+                with requests.get(video_url, headers=headers, stream=True, timeout=60) as r:
+                    r.raise_for_status()
+                    with open(output_path, 'wb') as f:
+                        for chunk in r.iter_content(chunk_size=8192):
+                            f.write(chunk)
+                
+                if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+                    print(f"✅ Video downloaded successfully")
+                    return True
+            except Exception as e:
+                if attempt == 2:
+                    raise e
+                print(f"[WARN] Download attempt {attempt+1}/3 failed: {e}")
+                import time
+                time.sleep(2)
+        
+        return False
+    
+    @staticmethod
+    def _try_instagram_api_1(url: str) -> str:
+        """Try Instagram download via embed page scraping."""
+        import re
+        shortcode_match = re.search(r'/(?:p|reel|reels)/([A-Za-z0-9_-]+)', url)
+        if not shortcode_match:
+            return None
+        
+        shortcode = shortcode_match.group(1)
+        
+        # Try embed page
+        embed_urls = [
+            f"https://www.instagram.com/reel/{shortcode}/embed/",
+            f"https://www.instagram.com/p/{shortcode}/embed/",
+            f"https://www.instagram.com/reel/{shortcode}/embed/captioned/",
+        ]
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        for embed_url in embed_urls:
+            try:
+                resp = requests.get(embed_url, headers=headers, timeout=30)
+                if resp.status_code == 200:
+                    # Look for video URL patterns
+                    patterns = [
+                        r'"video_url":"([^"]+)"',
+                        r'"contentUrl":"([^"]+)"',
+                        r'video_url=([^&"]+)',
+                    ]
+                    for pattern in patterns:
+                        match = re.search(pattern, resp.text)
+                        if match:
+                            video_url = match.group(1)
+                            video_url = video_url.encode('utf-8').decode('unicode_escape')
+                            video_url = video_url.replace('\\u0026', '&')
+                            if 'cdninstagram' in video_url or '.mp4' in video_url:
+                                return video_url
+            except:
+                continue
+        
+        return None
+    
+    @staticmethod
+    def _try_instagram_api_2(url: str) -> str:
+        """Try via modified mobile user agent."""
+        import re
+        
+        headers = {
+            'User-Agent': 'Instagram 219.0.0.12.117 Android',
+            'Accept': '*/*',
+        }
+        
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                
-                if not info:
-                    raise Exception("Could not extract video info")
-                
-                # Get metadata
-                metadata = {
-                    'title': info.get('title', 'Instagram Video'),
-                    'description': info.get('description', 'N/A'),
-                    'uploader': info.get('uploader', 'N/A'),
-                    'tags': info.get('tags', [])
-                }
-                
-                # Find the best video URL
-                video_url = None
-                
-                # Check for direct URL
-                if info.get('url'):
-                    video_url = info['url']
-                
-                # Check formats for video
-                if not video_url and info.get('formats'):
-                    # Sort formats by quality and find best video
-                    video_formats = [f for f in info['formats'] if f.get('vcodec') != 'none' and f.get('url')]
-                    if video_formats:
-                        # Sort by height (quality)
-                        video_formats.sort(key=lambda x: x.get('height', 0) or 0, reverse=True)
-                        video_url = video_formats[0]['url']
-                
-                if not video_url:
-                    raise Exception("Could not find video URL in extracted info")
-                
-                print(f"[INFO] Found video URL, downloading directly...")
-                
-                # Download with requests
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Referer': url,
-                }
-                
-                for attempt in range(3):
-                    try:
-                        with requests.get(video_url, headers=headers, stream=True, timeout=60) as r:
-                            r.raise_for_status()
-                            with open(output_path, 'wb') as f:
-                                for chunk in r.iter_content(chunk_size=8192):
-                                    f.write(chunk)
-                        
-                        if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
-                            print(f"✅ Instagram video downloaded successfully")
-                            return output_path, metadata
-                        else:
-                            raise Exception("Downloaded file is too small or missing")
-                    except Exception as e:
-                        if attempt == 2:
-                            raise e
-                        print(f"[WARN] Download attempt {attempt+1}/3 failed: {e}")
-                        import time
-                        time.sleep(2)
-                        
-        except Exception as e:
-            print(f"[WARN] Instagram direct extraction failed: {e}")
-            raise Exception(f"Instagram direct extraction failed: {e}")
+            resp = requests.get(url, headers=headers, timeout=30, allow_redirects=True)
+            if resp.status_code == 200:
+                patterns = [
+                    r'"video_url":"([^"]+)"',
+                    r'"playback_url":"([^"]+)"',
+                ]
+                for pattern in patterns:
+                    match = re.search(pattern, resp.text)
+                    if match:
+                        video_url = match.group(1).encode('utf-8').decode('unicode_escape')
+                        return video_url
+        except:
+            pass
+        
+        return None
+    
+    @staticmethod
+    def _try_instagram_api_3(url: str) -> str:
+        """Try via i.instagram.com API endpoint."""
+        import re
+        
+        shortcode_match = re.search(r'/(?:p|reel|reels)/([A-Za-z0-9_-]+)', url)
+        if not shortcode_match:
+            return None
+        
+        shortcode = shortcode_match.group(1)
+        
+        # Try the i.instagram.com API
+        api_url = f"https://i.instagram.com/api/v1/media/{shortcode}/info/"
+        
+        headers = {
+            'User-Agent': 'Instagram 219.0.0.12.117 Android (26/8.0.0; 480dpi; 1080x1920; samsung; SM-G950F; dreamlte; samsungexynos8895)',
+            'X-IG-App-ID': '936619743392459',
+        }
+        
+        try:
+            resp = requests.get(api_url, headers=headers, timeout=30)
+            if resp.status_code == 200:
+                data = resp.json()
+                items = data.get('items', [])
+                if items:
+                    video_versions = items[0].get('video_versions', [])
+                    if video_versions:
+                        return video_versions[0].get('url')
+        except:
+            pass
+        
+        return None
     
     @staticmethod
     def _download_with_ytdlp(url: str, output_path: str) -> tuple[str, dict]:
@@ -158,6 +296,11 @@ class VideoDownloader:
             'socket_timeout': 30,
             'retries': 3,
         }
+        
+        # Add cookies if available (for Instagram)
+        if "instagram.com" in url and os.path.exists(Config.INSTAGRAM_COOKIES_FILE):
+            ydl_opts['cookiefile'] = Config.INSTAGRAM_COOKIES_FILE
+            print(f"[INFO] Using Instagram cookies for yt-dlp")
 
         # Internal Retry Loop for yt-dlp specifically
         max_retries = 3
