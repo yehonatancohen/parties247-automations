@@ -80,8 +80,23 @@ class GraphicsEngine:
             text_pilmoji = None
             
         center_x = canvas.width // 2
-        safe_width = int(canvas.width * 0.8)
+        safe_width = int(canvas.width * 0.9)  # 90% width for longer lines
         sign_y = self.text_start_y
+        
+        # --- PROPORTIONAL SPACING ---
+        # Divide the sign area into balanced sections:
+        # Top padding → Title → Gap → Body → Bottom padding
+        # Adjusted ratios for better visual balance
+        sign_top = sign_y
+        sign_bottom = sign_y + self.sign_height
+        usable_height = self.sign_height
+        
+        top_padding = int(usable_height * 0.12)  # 12% top padding
+        title_area_height = int(usable_height * 0.18)  # 18% for title
+        gap_after_title = int(usable_height * 0.06)  # 6% gap between title and body
+        bottom_padding = int(usable_height * 0.18)  # 18% bottom padding
+        
+        body_area_start = top_padding + title_area_height + gap_after_title  # Body starts after gap
         
         # --- HEADLINE PREP ---
         title_font = self.title_font
@@ -91,7 +106,8 @@ class GraphicsEngine:
         while title_font.getlength(headline_processed) > safe_width and title_font.size > 40:
             title_font = ImageFont.truetype(Config.FONT_BOLD, title_font.size - 5)
             
-        headline_pos = (center_x, sign_y + 80) 
+        # Title positioned in the center of the title area
+        headline_pos = (center_x, sign_y + top_padding + (title_area_height // 2))
         
         # --- BODY PREP ---
         def wrap_paragraph(text, font, max_width):
@@ -128,8 +144,8 @@ class GraphicsEngine:
                 final_lines.extend(wrapped)
             return final_lines
 
-        body_start_y = sign_y + 150
-        max_body_y = sign_y + self.sign_height - 45 
+        body_start_y = sign_y + body_area_start
+        max_body_y = sign_bottom - bottom_padding
         max_available_height = max_body_y - body_start_y
         
         current_body_size = 60

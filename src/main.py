@@ -25,8 +25,6 @@ from services.downloader import VideoDownloader
 from services.graphics import GraphicsEngine
 from services.ai_generator import AIGenerator
 
-from time import sleep
-
 # Initialize Services
 graphics_engine = GraphicsEngine()
 ai_generator = AIGenerator()
@@ -194,12 +192,42 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     return ConversationHandler.END
 
-if __name__ == '__main__':
+async def send_startup_notification(application):
+    """Send a startup notification to all allowed users."""
+    from datetime import datetime
+    
+    allowed_users = Config.get_allowed_user_ids()
+    if not allowed_users:
+        print("⚠️ No allowed users configured for startup notification.")
+        return
+    
+    startup_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    message = (
+        "🤖 *הבוט מוכן ופעיל!*\n\n"
+        f"⏰ זמן התחלה: `{startup_time}`\n"
+        "✅ כל המערכות עובדות תקין\n\n"
+        "שלח /start כדי להתחיל 🚀"
+    )
+    
+    for user_id in allowed_users:
+        try:
+            await application.bot.send_message(
+                chat_id=user_id,
+                text=message,
+                parse_mode='Markdown'
+            )
+            print(f"✅ Startup notification sent to user {user_id}")
+        except Exception as e:
+            print(f"⚠️ Failed to send startup notification to {user_id}: {e}")
+
+
+async def main():
+    """Main async function to run the bot."""
     Config.ensure_dirs()
-
+    
     keep_alive()
-
-    sleep(3)
+    
+    await asyncio.sleep(3)
     
     print("🤖 Bot is starting...")
     
@@ -220,4 +248,27 @@ if __name__ == '__main__':
     
     application.add_handler(conv_handler)
     
-    application.run_polling()
+    # Initialize the application and send startup notification
+    await application.initialize()
+    await send_startup_notification(application)
+    
+    # Start polling
+    await application.start()
+    await application.updater.start_polling()
+    
+    print("🤖 Bot is now running and ready!")
+    
+    # Keep running until interrupted
+    try:
+        while True:
+            await asyncio.sleep(1)
+    except (KeyboardInterrupt, SystemExit):
+        print("\n🛑 Shutting down...")
+    finally:
+        await application.updater.stop()
+        await application.stop()
+        await application.shutdown()
+
+
+if __name__ == '__main__':
+    asyncio.run(main())

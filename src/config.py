@@ -13,6 +13,7 @@ class Config:
     else:
         TELEGRAM_TOKEN = os.getenv("TELEGRAM_INT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
 
+    # Single allowed user (for backward compatibility)
     _raw_allowed_user_id = os.getenv("ALLOWED_USER_ID")
     if not _raw_allowed_user_id:
         ALLOWED_USER_ID = None
@@ -21,7 +22,29 @@ class Config:
             ALLOWED_USER_ID = int(_raw_allowed_user_id)
         except ValueError as exc:
             raise ValueError("ALLOWED_USER_ID must be an integer.") from exc
+    
+    # Multiple allowed users (comma-separated list)
+    _raw_allowed_user_ids = os.getenv("ALLOWED_USER_IDS", "")
+    ALLOWED_USER_IDS = []
+    if _raw_allowed_user_ids:
+        for uid in _raw_allowed_user_ids.split(","):
+            uid = uid.strip()
+            if uid:
+                try:
+                    ALLOWED_USER_IDS.append(int(uid))
+                except ValueError:
+                    print(f"Warning: Invalid user ID in ALLOWED_USER_IDS: {uid}")
+    
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+    
+    @staticmethod
+    def get_allowed_user_ids():
+        """Get all allowed user IDs (combines single and multiple configs)."""
+        user_ids = set()
+        if Config.ALLOWED_USER_ID:
+            user_ids.add(Config.ALLOWED_USER_ID)
+        user_ids.update(Config.ALLOWED_USER_IDS)
+        return list(user_ids)
 
     # Paths
     # Use the assets directory relative to this config file (inside auto_content)
