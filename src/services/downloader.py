@@ -24,6 +24,13 @@ class VideoDownloader:
                 VideoDownloader._download_with_playwright,
                 VideoDownloader._download_with_ytdlp
             ]
+        elif "instagram.com" in url:
+            # Instagram: Try third-party API first, then yt-dlp with cookies, then Playwright
+            strategies = [
+                VideoDownloader._download_instagram_api,
+                VideoDownloader._download_with_ytdlp,
+                VideoDownloader._download_with_playwright
+            ]
         else:
             # Default: yt-dlp is best, Playwright as last resort
             strategies = [
@@ -41,6 +48,98 @@ class VideoDownloader:
                 errors.append(f"{strategy.__name__}: {e}")
                 
         raise Exception(f"All download strategies failed. Details: {'; '.join(errors)}")
+    
+    @staticmethod
+    def _download_instagram_api(url: str, output_path: str) -> tuple[str, dict]:
+        """
+        Download Instagram video using third-party API services.
+        """
+        print(f"⬇️ Downloading Instagram via API...")
+        metadata = {'title': 'Instagram Video', 'description': 'N/A', 'uploader': 'N/A', 'tags': []}
+        
+        # Extract shortcode from URL
+        import re
+        shortcode_match = re.search(r'/(?:p|reel|reels)/([A-Za-z0-9_-]+)', url)
+        if not shortcode_match:
+            raise Exception("Could not extract Instagram shortcode from URL")
+        
+        shortcode = shortcode_match.group(1)
+        
+        # Try multiple API services
+        api_services = [
+            VideoDownloader._try_saveig_api,
+            VideoDownloader._try_igdownloader_api,
+        ]
+        
+        for api_func in api_services:
+            try:
+                video_url = api_func(url, shortcode)
+                if video_url:
+                    # Download the video
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                    }
+                    with requests.get(video_url, headers=headers, stream=True, timeout=60) as r:
+                        r.raise_for_status()
+                        with open(output_path, 'wb') as f:
+                            for chunk in r.iter_content(chunk_size=8192):
+                                f.write(chunk)
+                    
+                    if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+                        return output_path, metadata
+            except Exception as e:
+                print(f"[WARN] API service failed: {e}")
+                continue
+        
+        raise Exception("All Instagram API services failed")
+    
+    @staticmethod
+    def _try_saveig_api(url: str, shortcode: str) -> str:
+        """Try saveig.app API"""
+        try:
+            api_url = "https://v3.saveig.app/api/ajaxSearch"
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Origin': 'https://saveig.app',
+                'Referer': 'https://saveig.app/'
+            }
+            data = {'q': url, 't': 'media', 'lang': 'en'}
+            
+            response = requests.post(api_url, headers=headers, data=data, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('status') == 'ok' and result.get('data'):
+                    import re
+                    # Find video download link in response
+                    html = result.get('data', '')
+                    video_match = re.search(r'href="([^"]+)"[^>]*>Download Video', html)
+                    if video_match:
+                        return video_match.group(1)
+        except Exception as e:
+            print(f"[DEBUG] saveig.app failed: {e}")
+        return None
+    
+    @staticmethod
+    def _try_igdownloader_api(url: str, shortcode: str) -> str:
+        """Try alternative Instagram downloader"""
+        try:
+            # Using a simple embed approach to get video URL
+            embed_url = f"https://www.instagram.com/p/{shortcode}/embed/"
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            response = requests.get(embed_url, headers=headers, timeout=30)
+            if response.status_code == 200:
+                import re
+                # Look for video URL in embed page
+                video_match = re.search(r'"video_url":"([^"]+)"', response.text)
+                if video_match:
+                    video_url = video_match.group(1).encode('utf-8').decode('unicode_escape')
+                    return video_url
+        except Exception as e:
+            print(f"[DEBUG] embed approach failed: {e}")
+        return None
 
     @staticmethod
     def _download_with_ytdlp(url: str, output_path: str) -> tuple[str, dict]:
@@ -149,6 +248,22 @@ class VideoDownloader:
                     matches = re.search(r'"playAddr":"(https?://[^"]+)"', content)
                     if matches:
                         video_url = matches.group(1).encode('utf-8').decode('unicode_escape')
+                
+                # Instagram specific regex fallback
+                if not video_url and "instagram.com" in url:
+                    content = page.content()
+                    import re
+                    # Try to find video_url in Instagram's embedded data
+                    patterns = [
+                        r'"video_url":"([^"]+)"',
+                        r'"contentUrl":"([^"]+\.mp4[^"]*)"',
+                        r'video_versions.*?"url":"([^"]+)"',
+                    ]
+                    for pattern in patterns:
+                        match = re.search(pattern, content)
+                        if match:
+                            video_url = match.group(1).encode('utf-8').decode('unicode_escape')
+                            break
                 
                 if not video_url:
                     # Generic fallback: look for any MP4 link in page source? Too risky.
