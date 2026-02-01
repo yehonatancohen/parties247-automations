@@ -21,7 +21,7 @@ from telegram.request import HTTPXRequest
 
 from stories_config import Config
 from models import Database, ScheduledStory
-from schedule_parser import parse_schedule, format_schedule_summary, ParsedSchedule
+from schedule_parser import parse_schedule, format_schedule_summary, ParsedSchedule, get_local_now
 from story_services.instagram_client import InstagramClient
 
 
@@ -154,7 +154,7 @@ async def receive_link_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['link_text'] = text
     
     # Time presets
-    now = datetime.now()
+    now = get_local_now()
     today_18 = now.replace(hour=18, minute=0, second=0, microsecond=0)
     if now.hour >= 18:
         today_18 += timedelta(days=1)
@@ -184,7 +184,7 @@ async def receive_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
     schedule_text = update.message.text.strip()
     
     # Handle relative time buttons
-    now = datetime.now()
+    now = get_local_now()
     if schedule_text == 'עוד שעה':
         target_time = now + timedelta(hours=1)
         schedule = ParsedSchedule(times=[target_time], recurrence=None, recurrence_day=None)
@@ -255,14 +255,14 @@ async def confirm_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
             recurrence=schedule.recurrence,
             recurrence_day=schedule.recurrence_day,
             status='pending',
-            created_at=datetime.now()
+            created_at=get_local_now()
         )
         db.add_story(story)
         saved_count += 1
     
     # Schedule the jobs in the job queue
     for scheduled_time in schedule.times:
-        delay = (scheduled_time - datetime.now()).total_seconds()
+        delay = (scheduled_time - get_local_now()).total_seconds()
         if delay > 0:
             context.job_queue.run_once(
                 upload_story_job,
@@ -316,9 +316,9 @@ async def upload_story_job(context: ContextTypes.DEFAULT_TYPE):
         # Notify user of failure
         await context.bot.send_message(
             chat_id=job_data['user_id'],
-            text=f"❌ *שגיאה בהעלאת הסטורי*\n\n"
+            text=f"❌ שגיאה בהעלאת הסטורי\n\n"
                  f"פרטים: {str(e)}",
-            parse_mode='Markdown'
+            parse_mode=None
         )
 
 
@@ -430,7 +430,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def restore_scheduled_jobs(application):
     """Restore scheduled jobs from database on startup."""
     pending_stories = db.get_pending_stories()
-    now = datetime.now()
+    now = get_local_now()
     restored_count = 0
     
     for story in pending_stories:
