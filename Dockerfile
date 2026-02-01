@@ -23,7 +23,7 @@ RUN apt-get update && apt-get install -y \
 
 # Copy local fonts to system font directory
 RUN mkdir -p /usr/share/fonts/truetype/custom
-COPY src/assets/fonts/ /usr/share/fonts/truetype/custom/
+COPY projects/video_creator/src/assets/fonts/ /usr/share/fonts/truetype/custom/
 
 # Refresh font cache
 RUN fc-cache -f -v
@@ -40,11 +40,12 @@ RUN playwright install chromium
 RUN playwright install-deps chromium
 
 # Copy project files
-COPY src/ .
-COPY tests/ tests/
+COPY projects/ projects/
+COPY run_all.py .
 
-# Ensure necessary directories exist
-RUN mkdir -p temp output
+# Ensure necessary directories exist for each project
+RUN mkdir -p projects/video_creator/src/temp projects/video_creator/src/output
+RUN mkdir -p projects/instagram_stories/src/temp projects/instagram_stories/src/output
 
-# Run the bot
-CMD ["python", "main.py"]
+# Run all automation projects
+CMD ["python", "run_all.py"]

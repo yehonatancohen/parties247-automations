@@ -5,10 +5,15 @@ __pycache__/
 env/
 venv/
 ENV/
-.env
 .git/
 .gitignore
-auto_content/temp/*
-auto_content/output/*
-!auto_content/temp/.gitkeep
-!auto_content/output/.gitkeep
+.pytest_cache/
+
+# Ignore temp and output in all projects
+**/temp/*
+**/output/*
+!**/temp/.gitkeep
+!**/output/.gitkeep
+
+# Ignore .env files (they should be passed via docker --env-file)
+**/.env

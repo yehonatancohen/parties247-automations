@@ -1,3 +1,14 @@
+# ========================================
+# Parties247 Automation Suite - Dependencies
+# ========================================
+
+# === Shared / Common ===
+python-dotenv
+requests
+pytest
+pytest-mock
+
+# === Video Creator Project ===
 moviepy<2.0.0
 Pillow
 python-bidi
@@ -5,15 +16,14 @@ arabic-reshaper
 yt-dlp
 python-telegram-bot
 python-telegram-bot[job-queue]
-python-dotenv
 pilmoji==2.0.4
 emoji<2.0.0
-requests
 g4f
 curl_cffi
 google-generativeai
 playwright
 flask
 pytesseract
-pytest
-pytest-mock
+
+# === Instagram Stories Project ===
+instagrapi
