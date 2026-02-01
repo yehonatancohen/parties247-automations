@@ -27,7 +27,8 @@ PROJECTS = [
 
 def load_project_main(project: dict):
     """Dynamically load a project's main module."""
-    project_path = os.path.join(os.path.dirname(__file__), project["path"])
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    project_path = os.path.join(base_dir, project["path"])
     
     # Check if project exists
     main_file = os.path.join(project_path, f"{project['main_module']}.py")
@@ -35,26 +36,39 @@ def load_project_main(project: dict):
         print(f"⚠️  Project '{project['name']}' not found or not initialized (missing {main_file})")
         return None
     
-    # Add project path to sys.path for imports
-    if project_path not in sys.path:
-        sys.path.insert(0, project_path)
-    
-    # Load the module
-    spec = importlib.util.spec_from_file_location(
-        f"{project['name']}.{project['main_module']}", 
-        main_file
-    )
-    module = importlib.util.module_from_spec(spec)
-    
-    # Set the module's __name__ properly
-    sys.modules[f"{project['name']}_{project['main_module']}"] = module
+    # Save current directory and sys.path state
+    original_cwd = os.getcwd()
+    original_sys_path = sys.path.copy()
     
     try:
+        # Change to project directory so relative imports work
+        os.chdir(project_path)
+        
+        # Add project path to sys.path at the beginning
+        if project_path not in sys.path:
+            sys.path.insert(0, project_path)
+        
+        # Load the module
+        spec = importlib.util.spec_from_file_location(
+            f"{project['name']}.{project['main_module']}", 
+            main_file
+        )
+        module = importlib.util.module_from_spec(spec)
+        
+        # Set the module's __name__ properly
+        sys.modules[f"{project['name']}_{project['main_module']}"] = module
+        
         spec.loader.exec_module(module)
         return getattr(module, project["main_function"], None)
+        
     except Exception as e:
         print(f"❌ Failed to load project '{project['name']}': {e}")
+        import traceback
+        traceback.print_exc()
         return None
+    finally:
+        # Restore original cwd (but keep sys.path changes for the loaded modules)
+        os.chdir(original_cwd)
 
 
 async def run_project(project: dict):
