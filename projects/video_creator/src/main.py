@@ -57,8 +57,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     await update.message.reply_text(
-        "👋 היי! בוא ניצור סרטון חדש.\n"
-        "שלח לי את הלינק לסרטון (TikTok/Instagram/YouTube):",
+        r"👋 היי! בוא ניצור סרטון חדש." + "\n\n"
+        r"שלח לי את הלינק לסרטון (TikTok/Instagram/YouTube):" + "\n\n"
+        r"_(או שלח /story לתזמון סטורי לאינסטגרם)_",
+        parse_mode='Markdown',
         reply_markup=ReplyKeyboardRemove()
     )
     return LINK
@@ -239,6 +241,7 @@ async def send_startup_notification(application):
         f"📸 סטטוס אינסטגרם: {ig_status}\n\n"
         r"*פקודות זמינות:*" + "\n"
         r"• /start - ליצור סרטון חדש" + "\n"
+        r"• /story - תזמון סטורי לאינסטגרם" + "\n"
         r"• /login\_instagram - התחבר לאינסטגרם" + "\n"
         r"• /logout\_instagram - התנתק מאינסטגרם" + "\n"
         r"• /instagram\_status - בדוק סטטוס" + "\n"
