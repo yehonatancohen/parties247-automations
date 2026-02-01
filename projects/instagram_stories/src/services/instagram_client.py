@@ -4,6 +4,8 @@ Handles authentication, session persistence, and story uploads with link sticker
 """
 
 import os
+import base64
+import json
 from pathlib import Path
 from typing import Optional
 from PIL import Image, ImageDraw, ImageFont
@@ -27,16 +29,89 @@ class InstagramClient:
         self.client.set_locale("he_IL")
         self.client.set_timezone_offset(2 * 3600)  # Israel timezone (UTC+2)
     
+    def _parse_netscape_cookies(self, cookie_content: str) -> dict:
+        """Parse Netscape format cookies into a dict for instagrapi."""
+        cookies = {}
+        for line in cookie_content.strip().split('\n'):
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            parts = line.split('\t')
+            if len(parts) >= 7:
+                name = parts[5]
+                value = parts[6]
+                cookies[name] = value
+        return cookies
+    
+    def _login_with_cookies(self) -> bool:
+        """
+        Try to login using INSTAGRAM_COOKIES env var.
+        Returns True if successful, False otherwise.
+        """
+        cookies_content = os.environ.get('INSTAGRAM_COOKIES')
+        if not cookies_content:
+            return False
+        
+        try:
+            # Decode base64 if needed
+            try:
+                decoded = base64.b64decode(cookies_content).decode('utf-8')
+                cookies_content = decoded
+            except:
+                pass  # Not base64, use as-is
+            
+            # Parse Netscape cookies format
+            cookies = self._parse_netscape_cookies(cookies_content)
+            
+            if not cookies.get('sessionid') or not cookies.get('ds_user_id'):
+                print("⚠️ INSTAGRAM_COOKIES missing required cookies (sessionid, ds_user_id)")
+                return False
+            
+            print("🔐 Logging in with INSTAGRAM_COOKIES env var...")
+            
+            # Set cookies directly on the client
+            self.client.set_settings({
+                "cookies": cookies,
+                "authorization_data": {
+                    "ds_user_id": cookies.get('ds_user_id', ''),
+                    "sessionid": cookies.get('sessionid', '')
+                }
+            })
+            
+            # Verify the session works
+            user_id = cookies.get('ds_user_id')
+            self.client.user_info(int(user_id))
+            
+            self.logged_in = True
+            print("✅ Instagram login successful (via cookies)")
+            
+            # Save session for future use
+            session_file = Path(Config.DATA_DIR) / Config.INSTAGRAM_SESSION_FILE
+            Config.ensure_dirs()
+            self.client.dump_settings(str(session_file))
+            
+            return True
+            
+        except Exception as e:
+            print(f"⚠️ Cookie-based login failed: {e}")
+            return False
+    
     def login(self, username: Optional[str] = None, password: Optional[str] = None) -> bool:
         """
         Login to Instagram with session persistence.
+        Priority: 1. INSTAGRAM_COOKIES env var, 2. Existing session, 3. Username/password
         Returns True if login successful.
         """
+        # First try cookies from env var
+        if self._login_with_cookies():
+            return True
+        
+        # Then try existing session or username/password
         username = username or Config.INSTAGRAM_USERNAME
         password = password or Config.INSTAGRAM_PASSWORD
         
         if not username or not password:
-            raise ValueError("Instagram credentials not configured")
+            raise ValueError("Instagram credentials not configured and INSTAGRAM_COOKIES not set")
         
         session_file = Path(Config.DATA_DIR) / Config.INSTAGRAM_SESSION_FILE
         
