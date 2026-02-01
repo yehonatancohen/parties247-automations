@@ -223,7 +223,14 @@ async def send_startup_notification(application):
     
     # Check Instagram login status
     ig_auth = get_instagram_auth()
-    ig_status = "✅ מחובר" if ig_auth.has_saved_session() else "❌ לא מחובר"
+    try:
+        # Attempt to login using session or env cookies
+        if not ig_auth.is_logged_in:
+            ig_auth.login_with_session()
+    except Exception as e:
+        print(f"⚠️ Instagram auto-login check failed: {e}")
+        
+    ig_status = "✅ מחובר" if ig_auth.is_logged_in else "❌ לא מחובר"
     
     message = (
         r"🤖 *הבוט מוכן ופעיל!*" + "\n\n"
@@ -436,7 +443,12 @@ async def instagram_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     ig_auth = get_instagram_auth()
     
-    if ig_auth.has_saved_session():
+    # Attempt login if not already
+    is_connected = ig_auth.is_logged_in
+    if not is_connected:
+        is_connected = ig_auth.login_with_session()
+    
+    if is_connected:
         await update.message.reply_text(
             r"✅ *סטטוס אינסטגרם: מחובר*" + "\n\n"
             r"הורדת סרטונים מאינסטגרם תעבוד באמינות גבוהה." + "\n\n"
