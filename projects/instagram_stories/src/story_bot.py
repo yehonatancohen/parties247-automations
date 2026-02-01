@@ -22,7 +22,7 @@ from telegram.request import HTTPXRequest
 from stories_config import Config
 from models import Database, ScheduledStory
 from schedule_parser import parse_schedule, format_schedule_summary
-from services.instagram_client import InstagramClient
+from story_services.instagram_client import InstagramClient
 
 
 # Initialize services
