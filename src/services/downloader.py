@@ -4,6 +4,7 @@ import requests
 import yt_dlp
 from playwright.sync_api import sync_playwright
 from config import Config
+from services.instagram_auth import get_instagram_auth
 
 import imageio_ffmpeg
 
@@ -52,10 +53,11 @@ class VideoDownloader:
     @staticmethod
     def _download_instagram_api(url: str, output_path: str) -> tuple[str, dict]:
         """
-        Download Instagram video using multiple third-party API services.
-        No yt-dlp - only external APIs for reliability.
+        Download Instagram video using multiple strategies:
+        1. First try with saved authentication cookies (if user is logged in)
+        2. Then try third-party API services
         """
-        print(f"⬇️ Downloading Instagram via APIs...")
+        print(f"⬇️ Downloading Instagram...")
         metadata = {'title': 'Instagram Video', 'description': 'N/A', 'uploader': 'N/A', 'tags': []}
         
         # Extract shortcode from URL
@@ -65,8 +67,21 @@ class VideoDownloader:
             raise Exception("Could not extract Instagram shortcode from URL")
         shortcode = shortcode_match.group(1)
         
-        # Try multiple API services in order
-        # First try third-party services that act as proxies (more reliable from server)
+        # Strategy 1: Try with authenticated cookies if available
+        ig_auth = get_instagram_auth()
+        if ig_auth.has_saved_session():
+            print("[INFO] Using saved Instagram session for download...")
+            try:
+                cookies_file = ig_auth.get_cookies_for_ytdlp()
+                if cookies_file:
+                    result = VideoDownloader._try_ytdlp_with_cookies(url, output_path, cookies_file)
+                    if result:
+                        return result
+            except Exception as e:
+                print(f"[WARN] Authenticated download failed: {e}")
+        
+        # Strategy 2: Try third-party API services
+        print("[INFO] Trying third-party API services...")
         api_funcs = [
             ("SnapInsta API", lambda: VideoDownloader._try_snapinsta_api(url, shortcode)),
             ("iGram API", lambda: VideoDownloader._try_igram_api(url, shortcode)),
@@ -90,7 +105,51 @@ class VideoDownloader:
                 print(f"[WARN] {api_name} failed: {e}")
                 continue
         
-        raise Exception("All Instagram API services failed")
+        raise Exception("All Instagram download methods failed. Try /login_instagram to authenticate.")
+    
+    @staticmethod
+    def _try_ytdlp_with_cookies(url: str, output_path: str, cookies_file: str) -> tuple[str, dict]:
+        """Try to download Instagram video using yt-dlp with authentication cookies."""
+        import shutil
+        
+        src_ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        dest_ffmpeg = os.path.join(Config.TEMP_DIR, "ffmpeg.exe")
+        
+        if not os.path.exists(dest_ffmpeg):
+            try:
+                shutil.copy2(src_ffmpeg, dest_ffmpeg)
+            except Exception:
+                dest_ffmpeg = src_ffmpeg
+        
+        ydl_opts = {
+            'format': 'bestvideo+bestaudio/best',
+            'merge_output_format': 'mp4',
+            'outtmpl': output_path,
+            'quiet': True,
+            'no_warnings': True,
+            'ffmpeg_location': dest_ffmpeg,
+            'socket_timeout': 30,
+            'retries': 3,
+            'cookiefile': cookies_file,
+        }
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            
+            if info:
+                metadata = {
+                    'title': info.get('title', 'Instagram Video'),
+                    'description': info.get('description', 'N/A'),
+                    'uploader': info.get('uploader', 'N/A'),
+                    'tags': info.get('tags', [])
+                }
+                
+                # Verify file exists
+                if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+                    print("✅ Instagram video downloaded with authentication")
+                    return output_path, metadata
+        
+        return None
     
     @staticmethod
     def _try_snapinsta_api(url: str, shortcode: str) -> str:

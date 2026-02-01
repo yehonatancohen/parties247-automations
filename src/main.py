@@ -24,13 +24,17 @@ from keep_alive import keep_alive
 from services.downloader import VideoDownloader
 from services.graphics import GraphicsEngine
 from services.ai_generator import AIGenerator
+from services.instagram_auth import get_instagram_auth
 
 # Initialize Services
 graphics_engine = GraphicsEngine()
 ai_generator = AIGenerator()
 
-# States
+# Conversation states for video creation
 LINK, TITLE, BODY, LAYOUT_CHOICE = range(4)
+
+# Conversation states for Instagram login
+IG_USERNAME, IG_PASSWORD, IG_2FA_CODE = range(10, 13)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -202,11 +206,22 @@ async def send_startup_notification(application):
         return
     
     startup_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Check Instagram login status
+    ig_auth = get_instagram_auth()
+    ig_status = "✅ מחובר" if ig_auth.has_saved_session() else "❌ לא מחובר"
+    
     message = (
         "🤖 *הבוט מוכן ופעיל!*\n\n"
         f"⏰ זמן התחלה: `{startup_time}`\n"
         "✅ כל המערכות עובדות תקין\n\n"
-        "שלח /start כדי להתחיל 🚀"
+        f"📸 סטטוס אינסטגרם: {ig_status}\n\n"
+        "*פקודות זמינות:*\n"
+        "• /start - ליצור סרטון חדש\n"
+        "• /login\\_instagram - התחבר לאינסטגרם\n"
+        "• /logout\\_instagram - התנתק מאינסטגרם\n"
+        "• /instagram\\_status - בדוק סטטוס\n"
+        "• /cancel - ביטול פעולה נוכחית"
     )
     
     for user_id in allowed_users:
@@ -219,6 +234,218 @@ async def send_startup_notification(application):
             print(f"✅ Startup notification sent to user {user_id}")
         except Exception as e:
             print(f"⚠️ Failed to send startup notification to {user_id}: {e}")
+
+
+# ============================================================
+# Instagram Login Handlers
+# ============================================================
+
+async def login_instagram_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start Instagram login process."""
+    user_id = update.effective_user.id
+    if user_id not in Config.get_allowed_user_ids():
+        await update.message.reply_text("⛔ גישה נדחתה.")
+        return ConversationHandler.END
+    
+    ig_auth = get_instagram_auth()
+    
+    # Check if already logged in
+    if ig_auth.has_saved_session():
+        await update.message.reply_text(
+            "✅ אתה כבר מחובר לאינסטגרם!\n"
+            "אם ברצונך להתנתק, שלח /logout_instagram"
+        )
+        return ConversationHandler.END
+    
+    await update.message.reply_text(
+        "🔐 *התחברות לאינסטגרם*\n\n"
+        "זה יאפשר לי להוריד סרטונים מאינסטגרם בצורה אמינה יותר.\n\n"
+        "📧 שלח את שם המשתמש שלך באינסטגרם:",
+        parse_mode='Markdown',
+        reply_markup=ReplyKeyboardRemove()
+    )
+    return IG_USERNAME
+
+
+async def receive_ig_username(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Receive Instagram username."""
+    username = update.message.text.strip()
+    context.user_data['ig_username'] = username
+    
+    await update.message.reply_text(
+        "🔑 עכשיו שלח את הסיסמה שלך:\n\n"
+        "_(ההודעה תימחק מיד לאבטחה)_",
+        parse_mode='Markdown'
+    )
+    return IG_PASSWORD
+
+
+async def receive_ig_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Receive Instagram password and attempt login."""
+    password = update.message.text.strip()
+    username = context.user_data.get('ig_username', '')
+    
+    # Try to delete the password message for security
+    try:
+        await update.message.delete()
+    except:
+        pass
+    
+    # Store password for potential 2FA retry
+    context.user_data['ig_password'] = password
+    
+    await update.message.reply_text(
+        "⏳ מנסה להתחבר לאינסטגרם...\n"
+        "זה עשוי לקחת מספר שניות..."
+    )
+    
+    ig_auth = get_instagram_auth()
+    
+    # Create a 2FA callback that will signal we need 2FA
+    context.user_data['needs_2fa'] = False
+    
+    async def on_2fa_required():
+        """Called when Instagram requests 2FA."""
+        context.user_data['needs_2fa'] = True
+        # Wait for user to provide 2FA code
+        await update.message.reply_text(
+            "🔐 *נדרש קוד אימות דו-שלבי*\n\n"
+            "אינסטגרם שולח לך קוד SMS או קוד מאפליקציית האימות.\n"
+            "שלח את הקוד כאן:",
+            parse_mode='Markdown'
+        )
+        
+        # Wait for code to be set in context
+        for _ in range(120):  # Wait up to 2 minutes
+            await asyncio.sleep(1)
+            if context.user_data.get('2fa_code'):
+                code = context.user_data.pop('2fa_code')
+                return code
+        return None
+    
+    try:
+        result = await ig_auth.login(username, password, on_2fa_required)
+        
+        # Clear sensitive data
+        context.user_data.pop('ig_password', None)
+        
+        if result.get('needs_2fa'):
+            await update.message.reply_text(
+                "🔐 *נדרש קוד אימות דו-שלבי*\n\n"
+                "אינסטגרם שולח לך קוד SMS או קוד מאפליקציית האימות.\n"
+                "שלח את הקוד כאן:",
+                parse_mode='Markdown'
+            )
+            return IG_2FA_CODE
+        
+        if result.get('success'):
+            await update.message.reply_text(
+                "✅ *התחברת בהצלחה לאינסטגרם!*\n\n"
+                "עכשיו אני יכול להוריד סרטונים מחשבונות פרטיים ובאמינות גבוהה יותר.\n\n"
+                "שלח /start כדי ליצור סרטון חדש 🚀",
+                parse_mode='Markdown'
+            )
+            context.user_data.clear()
+            return ConversationHandler.END
+        else:
+            await update.message.reply_text(
+                f"❌ ההתחברות נכשלה:\n{result.get('message', 'שגיאה לא ידועה')}\n\n"
+                "נסה שוב עם /login_instagram"
+            )
+            context.user_data.clear()
+            return ConversationHandler.END
+            
+    except Exception as e:
+        await update.message.reply_text(
+            f"❌ שגיאה בהתחברות: {str(e)}\n\n"
+            "נסה שוב מאוחר יותר."
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
+
+
+async def receive_ig_2fa_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Receive and process 2FA code."""
+    code = update.message.text.strip()
+    
+    # Store code for the waiting login process
+    context.user_data['2fa_code'] = code
+    
+    await update.message.reply_text(
+        "⏳ מאמת את הקוד...",
+    )
+    
+    # Wait a moment for the login process to pick up the code
+    await asyncio.sleep(5)
+    
+    # Check if login succeeded
+    ig_auth = get_instagram_auth()
+    if ig_auth.has_saved_session():
+        await update.message.reply_text(
+            "✅ *התחברת בהצלחה לאינסטגרם!*\n\n"
+            "עכשיו אני יכול להוריד סרטונים מחשבונות פרטיים ובאמינות גבוהה יותר.\n\n"
+            "שלח /start כדי ליצור סרטון חדש 🚀",
+            parse_mode='Markdown'
+        )
+    else:
+        await update.message.reply_text(
+            "❌ הקוד לא התקבל או שפג תוקפו.\n"
+            "נסה שוב עם /login_instagram"
+        )
+    
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def logout_instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Logout from Instagram (clear saved session)."""
+    user_id = update.effective_user.id
+    if user_id not in Config.get_allowed_user_ids():
+        await update.message.reply_text("⛔ גישה נדחתה.")
+        return
+    
+    ig_auth = get_instagram_auth()
+    ig_auth.clear_session()
+    
+    await update.message.reply_text(
+        "✅ התנתקת מאינסטגרם בהצלחה.\n\n"
+        "אם תרצה להתחבר שוב, שלח /login_instagram"
+    )
+
+
+async def instagram_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Check Instagram login status."""
+    user_id = update.effective_user.id
+    if user_id not in Config.get_allowed_user_ids():
+        await update.message.reply_text("⛔ גישה נדחתה.")
+        return
+    
+    ig_auth = get_instagram_auth()
+    
+    if ig_auth.has_saved_session():
+        await update.message.reply_text(
+            "✅ *סטטוס אינסטגרם: מחובר*\n\n"
+            "הורדת סרטונים מאינסטגרם תעבוד באמינות גבוהה.\n\n"
+            "• להתנתק: /logout_instagram",
+            parse_mode='Markdown'
+        )
+    else:
+        await update.message.reply_text(
+            "❌ *סטטוס אינסטגרם: לא מחובר*\n\n"
+            "הורדת סרטונים מאינסטגרם עשויה להיכשל עקב הגבלות.\n\n"
+            "• להתחבר: /login_instagram",
+            parse_mode='Markdown'
+        )
+
+
+async def cancel_instagram_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Cancel Instagram login process."""
+    await update.message.reply_text(
+        "❌ ההתחברות לאינסטגרם בוטלה.",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    context.user_data.clear()
+    return ConversationHandler.END
 
 
 async def main():
@@ -246,7 +473,23 @@ async def main():
         fallbacks=[CommandHandler('cancel', cancel)],
     )
     
+    # Instagram login conversation handler
+    ig_login_handler = ConversationHandler(
+        entry_points=[CommandHandler('login_instagram', login_instagram_start)],
+        states={
+            IG_USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_ig_username)],
+            IG_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_ig_password)],
+            IG_2FA_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_ig_2fa_code)],
+        },
+        fallbacks=[CommandHandler('cancel', cancel_instagram_login)],
+    )
+    
     application.add_handler(conv_handler)
+    application.add_handler(ig_login_handler)
+    
+    # Standalone Instagram commands
+    application.add_handler(CommandHandler('logout_instagram', logout_instagram))
+    application.add_handler(CommandHandler('instagram_status', instagram_status))
     
     # Initialize the application and send startup notification
     await application.initialize()
