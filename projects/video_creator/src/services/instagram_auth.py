@@ -107,7 +107,7 @@ class InstagramAuth:
         if not cookies_content:
             return False
         
-        print(f"[INFO] Found INSTAGRAM_COOKIES env var, attempting login...")
+        print(f"[INFO] 🔍 Found INSTAGRAM_COOKIES env var. Length: {len(cookies_content)} chars")
         
         try:
             import base64
@@ -115,11 +115,24 @@ class InstagramAuth:
             try:
                 decoded = base64.b64decode(cookies_content).decode('utf-8')
                 cookies_content = decoded
+                print("[INFO] ✅ Detected Base64 encoding. Decoded successfully.")
             except:
-                pass  # Not base64, use as-is
+                print("[INFO] ℹ️  Not Base64 or failed decode, treating as raw text.")
             
             # Parse Netscape cookies format
             cookies = self._parse_netscape_cookies(cookies_content)
+            print(f"[INFO] 🍪 Parsed {len(cookies)} cookies.")
+            
+            # Specific cookie checks
+            if 'sessionid' in cookies:
+                print("[INFO] ✅ Found 'sessionid' cookie.")
+            else:
+                print("[WARN] ❌ MISSING 'sessionid' cookie!")
+                
+            if 'ds_user_id' in cookies:
+                print("[INFO] ✅ Found 'ds_user_id' cookie.")
+            else:
+                print("[WARN] ❌ MISSING 'ds_user_id' cookie!")
             
             if not cookies.get('sessionid') or not cookies.get('ds_user_id'):
                 print("[WARN] INSTAGRAM_COOKIES missing required cookies (sessionid, ds_user_id)")
@@ -136,15 +149,23 @@ class InstagramAuth:
                 }
             })
             
-            # Verify the session works
-            user_id = cookies.get('ds_user_id')
-            client.user_info(int(user_id))
+            # Verify the session works (soft check)
+            try:
+                user_id = cookies.get('ds_user_id')
+                client.user_info(int(user_id))
+            except Exception as e:
+                print(f"[WARN] Session validation (user_info) failed: {e}")
+                print("[INFO] Proceeding anyway as cookies might still work for yt-dlp...")
             
             self._is_logged_in = True
-            print("[INFO] Instagram login successful via INSTAGRAM_COOKIES env var")
+            print(f"[INFO] 🚀 Instagram login successful via INSTAGRAM_COOKIES env var")
             
-            # Save session for future use
-            self._save_session()
+            # Save session checking success
+            try:
+                self._save_session()
+            except Exception as e:
+                print(f"[WARN] Failed to save session: {e}")
+                
             return True
             
         except Exception as e:

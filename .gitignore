@@ -9,10 +9,11 @@ ENV/
 
 # Environment Variables
 .env
+*.env*
 
 # Sensitive files - cookies contain session tokens
 **/instagram_cookies.txt
-**/instagram_session.json
+**/session.json
 
 # Project output/temp directories
 **/output/*
