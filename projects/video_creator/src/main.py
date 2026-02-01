@@ -440,14 +440,14 @@ async def instagram_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "✅ *סטטוס אינסטגרם: מחובר*\n\n"
             "הורדת סרטונים מאינסטגרם תעבוד באמינות גבוהה.\n\n"
-            "• להתנתק: /logout_instagram",
+            "• להתנתק: /logout\_instagram",
             parse_mode='Markdown'
         )
     else:
         await update.message.reply_text(
             "❌ *סטטוס אינסטגרם: לא מחובר*\n\n"
             "הורדת סרטונים מאינסטגרם עשויה להיכשל עקב הגבלות.\n\n"
-            "• להתחבר: /login_instagram",
+            "• להתחבר: /login\_instagram",
             parse_mode='Markdown'
         )
 

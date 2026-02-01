@@ -84,11 +84,80 @@ class InstagramAuth:
             self._client.dump_settings(session_file)
             print("[INFO] Instagram session saved")
     
+    def _parse_netscape_cookies(self, cookie_content: str) -> dict:
+        """Parse Netscape format cookies into a dict for instagrapi."""
+        cookies = {}
+        for line in cookie_content.strip().split('\n'):
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            parts = line.split('\t')
+            if len(parts) >= 7:
+                name = parts[5]
+                value = parts[6]
+                cookies[name] = value
+        return cookies
+
+    def _load_cookies_from_env(self) -> bool:
+        """
+        Try to load session from INSTAGRAM_COOKIES env var.
+        Returns True if successful.
+        """
+        cookies_content = os.environ.get('INSTAGRAM_COOKIES')
+        if not cookies_content:
+            return False
+        
+        print(f"[INFO] Found INSTAGRAM_COOKIES env var, attempting login...")
+        
+        try:
+            import base64
+            # Decode base64 if needed
+            try:
+                decoded = base64.b64decode(cookies_content).decode('utf-8')
+                cookies_content = decoded
+            except:
+                pass  # Not base64, use as-is
+            
+            # Parse Netscape cookies format
+            cookies = self._parse_netscape_cookies(cookies_content)
+            
+            if not cookies.get('sessionid') or not cookies.get('ds_user_id'):
+                print("[WARN] INSTAGRAM_COOKIES missing required cookies (sessionid, ds_user_id)")
+                return False
+            
+            client = self._get_client()
+            
+            # Set cookies directly on the client
+            client.set_settings({
+                "cookies": cookies,
+                "authorization_data": {
+                    "ds_user_id": cookies.get('ds_user_id', ''),
+                    "sessionid": cookies.get('sessionid', '')
+                }
+            })
+            
+            # Verify the session works
+            user_id = cookies.get('ds_user_id')
+            client.user_info(int(user_id))
+            
+            self._is_logged_in = True
+            print("[INFO] Instagram login successful via INSTAGRAM_COOKIES env var")
+            
+            # Save session for future use
+            self._save_session()
+            return True
+            
+        except Exception as e:
+            print(f"[ERROR] Cookie-based login from env failed: {e}")
+            return False
+
     def _load_session(self) -> bool:
         """Load session from file. Returns True if successful."""
         session_file = self._get_session_file()
+        
+        # If no session file, try env var
         if not os.path.exists(session_file):
-            return False
+            return self._load_cookies_from_env()
         
         try:
             client = self._get_client()
@@ -101,6 +170,10 @@ class InstagramAuth:
             return True
         except Exception as e:
             print(f"[WARN] Failed to load session: {e}")
+            # Try fallback to env var if session load failed
+            if self._load_cookies_from_env():
+                return True
+            
             self._client = None
             return False
     
