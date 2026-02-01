@@ -21,7 +21,7 @@ from telegram.request import HTTPXRequest
 
 from stories_config import Config
 from models import Database, ScheduledStory
-from schedule_parser import parse_schedule, format_schedule_summary
+from schedule_parser import parse_schedule, format_schedule_summary, ParsedSchedule
 from story_services.instagram_client import InstagramClient
 
 
@@ -153,19 +153,28 @@ async def receive_link_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Use selected preset (remove emoji prefix from keyboard buttons)
     context.user_data['link_text'] = text
     
+    # Time presets
+    now = datetime.now()
+    today_18 = now.replace(hour=18, minute=0, second=0, microsecond=0)
+    if now.hour >= 18:
+        today_18 += timedelta(days=1)
+        label_18 = "מחר 18:00"
+    else:
+        label_18 = "היום 18:00"
+        
+    tomorrow_10 = (now + timedelta(days=1)).replace(hour=10, minute=0, second=0, microsecond=0)
+    
+    keyboard = [
+        [label_18, 'מחר 10:00'],
+        ['עוד שעה', 'עוד 3 שעות'],
+        ['ביטול']
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    
     await update.message.reply_text(
         "✅ טקסט נשמר!\n\n"
-        "עכשיו שלח מתי להעלות את הסטורי:\n\n"
-        "*דוגמאות:*\n"
-        "• `היום 18:00`\n"
-        "• `מחר 10:00`\n"
-        "• `ראשון 20:00`\n"
-        "• `כל ראשון 18:00` (חוזר כל שבוע)\n"
-        "• `כל יום 09:00` (חוזר כל יום)\n"
-        "• `3 פעמים השבוע`\n"
-        "• `15/02 20:00`",
-        parse_mode='Markdown',
-        reply_markup=ReplyKeyboardRemove()
+        "עכשיו שלח מתי להעלות את הסטורי או בחר אפשרות:",
+        reply_markup=reply_markup
     )
     return SCHEDULE
 
@@ -174,10 +183,28 @@ async def receive_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Parse and validate the schedule."""
     schedule_text = update.message.text.strip()
     
-    try:
-        schedule = parse_schedule(schedule_text)
+    # Handle relative time buttons
+    now = datetime.now()
+    if schedule_text == 'עוד שעה':
+        target_time = now + timedelta(hours=1)
+        schedule = ParsedSchedule(times=[target_time], recurrence=None, recurrence_day=None)
         context.user_data['schedule'] = schedule
-        
+        schedule_parsed = True
+    elif schedule_text == 'עוד 3 שעות':
+        target_time = now + timedelta(hours=3)
+        schedule = ParsedSchedule(times=[target_time], recurrence=None, recurrence_day=None)
+        context.user_data['schedule'] = schedule
+        schedule_parsed = True
+    else:
+        try:
+            schedule = parse_schedule(schedule_text)
+            context.user_data['schedule'] = schedule
+            schedule_parsed = True
+        except ValueError as e:
+            await update.message.reply_text(str(e))
+            return SCHEDULE
+            
+    if schedule_parsed:
         # Format confirmation message
         summary = format_schedule_summary(schedule)
         
@@ -194,10 +221,6 @@ async def receive_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
         return CONFIRM
-        
-    except ValueError as e:
-        await update.message.reply_text(str(e))
-        return SCHEDULE
 
 
 async def confirm_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
