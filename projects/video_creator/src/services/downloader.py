@@ -50,10 +50,44 @@ class VideoDownloader:
         raise Exception(f"All download strategies failed. Details: {'; '.join(errors)}")
     
     @staticmethod
+    def _get_instagram_cookies_file() -> str:
+        """
+        Get path to Instagram cookies file.
+        Creates it from INSTAGRAM_COOKIES env var if not exists.
+        """
+        cookies_file = os.path.join(Config.ASSETS_DIR, "instagram_cookies.txt")
+        
+        # If file exists, use it
+        if os.path.exists(cookies_file):
+            return cookies_file
+        
+        # Try to create from environment variable
+        cookies_content = os.environ.get('INSTAGRAM_COOKIES')
+        if cookies_content:
+            try:
+                # Check if it's base64 encoded (for easier env var handling)
+                import base64
+                try:
+                    decoded = base64.b64decode(cookies_content).decode('utf-8')
+                    cookies_content = decoded
+                except:
+                    pass  # Not base64, use as-is
+                
+                os.makedirs(Config.ASSETS_DIR, exist_ok=True)
+                with open(cookies_file, 'w', encoding='utf-8') as f:
+                    f.write(cookies_content)
+                print("[INFO] Created instagram_cookies.txt from INSTAGRAM_COOKIES env var")
+                return cookies_file
+            except Exception as e:
+                print(f"[WARN] Failed to create cookies file from env var: {e}")
+        
+        return None
+    
+    @staticmethod
     def _download_instagram_api(url: str, output_path: str) -> tuple[str, dict]:
         """
         Download Instagram video:
-        1. First try yt-dlp with cookies file (if exists at assets/instagram_cookies.txt)
+        1. First try yt-dlp with cookies (from file or INSTAGRAM_COOKIES env var)
         2. Then try multiple third-party API services
         """
         print(f"⬇️ Downloading Instagram...")
@@ -66,10 +100,10 @@ class VideoDownloader:
             raise Exception("Could not extract Instagram shortcode from URL")
         shortcode = shortcode_match.group(1)
         
-        # Strategy 1: Try yt-dlp with cookies file if it exists
-        cookies_file = os.path.join(Config.ASSETS_DIR, "instagram_cookies.txt")
-        if os.path.exists(cookies_file):
-            print("[INFO] Found Instagram cookies file, trying authenticated download...")
+        # Strategy 1: Try yt-dlp with cookies if available
+        cookies_file = VideoDownloader._get_instagram_cookies_file()
+        if cookies_file:
+            print("[INFO] Found Instagram cookies, trying authenticated download...")
             try:
                 result = VideoDownloader._try_ytdlp_with_cookies(url, output_path, cookies_file)
                 if result:
@@ -77,7 +111,7 @@ class VideoDownloader:
             except Exception as e:
                 print(f"[WARN] yt-dlp with cookies failed: {e}")
         else:
-            print("[INFO] No cookies file found at assets/instagram_cookies.txt, using API fallbacks")
+            print("[INFO] No Instagram cookies found, using API fallbacks")
         
         # Strategy 2: Try multiple API services
         print("[INFO] Trying third-party API services...")
