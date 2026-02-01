@@ -42,6 +42,11 @@ class InstagramAuth:
     def __init__(self):
         self._is_logged_in = False
         self._client = None
+        
+    @property
+    def is_logged_in(self) -> bool:
+        """Check if currently logged in."""
+        return self._is_logged_in
     
     def _get_client(self):
         """Get or create the Instagram client."""
