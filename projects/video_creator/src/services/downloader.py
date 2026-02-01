@@ -51,6 +51,40 @@ class VideoDownloader:
         raise Exception(f"All download strategies failed. Details: {'; '.join(errors)}")
     
     @staticmethod
+    def _get_instagram_cookies_file() -> str:
+        """
+        Get path to Instagram cookies file.
+        Creates it from INSTAGRAM_COOKIES env var if not exists.
+        """
+        cookies_file = os.path.join(Config.ASSETS_DIR, "instagram_cookies.txt")
+        
+        # If file exists, use it
+        if os.path.exists(cookies_file):
+            return cookies_file
+        
+        # Try to create from environment variable
+        cookies_content = os.environ.get('INSTAGRAM_COOKIES')
+        if cookies_content:
+            try:
+                # Check if it's base64 encoded (for easier env var handling)
+                import base64
+                try:
+                    decoded = base64.b64decode(cookies_content).decode('utf-8')
+                    cookies_content = decoded
+                except:
+                    pass  # Not base64, use as-is
+                
+                os.makedirs(Config.ASSETS_DIR, exist_ok=True)
+                with open(cookies_file, 'w', encoding='utf-8') as f:
+                    f.write(cookies_content)
+                print("[INFO] Created instagram_cookies.txt from INSTAGRAM_COOKIES env var")
+                return cookies_file
+            except Exception as e:
+                print(f"[WARN] Failed to create cookies file from env var: {e}")
+        
+        return None
+    
+    @staticmethod
     def _download_instagram_api(url: str, output_path: str) -> tuple[str, dict]:
         """
         Download Instagram video using multiple strategies:

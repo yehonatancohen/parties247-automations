@@ -10,11 +10,15 @@ ENV/
 # Environment Variables
 .env
 
-# Project specific
-auto_content/output/*
-!auto_content/output/.gitkeep
-auto_content/temp/*
-!auto_content/temp/.gitkeep
+# Sensitive files - cookies contain session tokens
+**/instagram_cookies.txt
+**/instagram_session.json
+
+# Project output/temp directories
+**/output/*
+!**/output/.gitkeep
+**/temp/*
+!**/temp/.gitkeep
 
 # Operating System
 Thumbs.db
