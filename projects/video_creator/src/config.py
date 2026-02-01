@@ -1,5 +1,11 @@
 import os
+import sys
 from dotenv import load_dotenv
+
+# Set encoding for all I/O operations
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
+os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 load_dotenv()
 
@@ -56,6 +62,10 @@ class Config:
     # Ready-to-use overlay template (User provided)
     READY_OVERLAY_PATH = os.path.join(ASSETS_DIR, "overlay_template.png")
     
+    # Instagram session storage
+    INSTAGRAM_SESSION_DIR = os.path.join(BASE_DIR, "instagram_session")
+    INSTAGRAM_COOKIES_FILE = os.path.join(INSTAGRAM_SESSION_DIR, "cookies.json")
+    
     # Fonts
     # Switched to Heebo-Bold to provide a true Bold look (800 equivalent).
     FONT_BOLD = os.path.join(ASSETS_DIR, "fonts", "Rubik-ExtraBold.ttf")
@@ -68,3 +78,4 @@ class Config:
     def ensure_dirs():
         os.makedirs(Config.OUTPUT_DIR, exist_ok=True)
         os.makedirs(Config.TEMP_DIR, exist_ok=True)
+        os.makedirs(Config.INSTAGRAM_SESSION_DIR, exist_ok=True)

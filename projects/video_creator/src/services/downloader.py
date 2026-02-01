@@ -4,6 +4,7 @@ import requests
 import yt_dlp
 from playwright.sync_api import sync_playwright
 from config import Config
+from services.instagram_auth import get_instagram_auth
 
 import imageio_ffmpeg
 
@@ -86,9 +87,10 @@ class VideoDownloader:
     @staticmethod
     def _download_instagram_api(url: str, output_path: str) -> tuple[str, dict]:
         """
-        Download Instagram video:
-        1. First try yt-dlp with cookies (from file or INSTAGRAM_COOKIES env var)
-        2. Then try multiple third-party API services
+        Download Instagram video using multiple strategies:
+        1. First try direct download via instagrapi (if logged in)
+        2. Then try yt-dlp with saved cookies
+        3. Finally try third-party API services
         """
         print(f"⬇️ Downloading Instagram...")
         metadata = {'title': 'Instagram Video', 'description': 'N/A', 'uploader': 'N/A', 'tags': []}
@@ -100,20 +102,31 @@ class VideoDownloader:
             raise Exception("Could not extract Instagram shortcode from URL")
         shortcode = shortcode_match.group(1)
         
-        # Strategy 1: Try yt-dlp with cookies if available
-        cookies_file = VideoDownloader._get_instagram_cookies_file()
-        if cookies_file:
-            print("[INFO] Found Instagram cookies, trying authenticated download...")
+        ig_auth = get_instagram_auth()
+        
+        # Strategy 1: Direct download via instagrapi (most reliable if logged in)
+        if ig_auth.has_saved_session():
+            print("[INFO] Trying direct download via instagrapi...")
             try:
-                result = VideoDownloader._try_ytdlp_with_cookies(url, output_path, cookies_file)
-                if result:
-                    return result
+                result = ig_auth.download_video(url, output_path)
+                if result and os.path.exists(result) and os.path.getsize(result) > 1000:
+                    print("✅ Downloaded via instagrapi!")
+                    return result, metadata
+            except Exception as e:
+                print(f"[WARN] Instagrapi download failed: {e}")
+            
+            # Strategy 2: Try yt-dlp with cookies
+            print("[INFO] Trying yt-dlp with Instagram cookies...")
+            try:
+                cookies_file = ig_auth.get_cookies_for_ytdlp()
+                if cookies_file:
+                    result = VideoDownloader._try_ytdlp_with_cookies(url, output_path, cookies_file)
+                    if result:
+                        return result
             except Exception as e:
                 print(f"[WARN] yt-dlp with cookies failed: {e}")
-        else:
-            print("[INFO] No Instagram cookies found, using API fallbacks")
         
-        # Strategy 2: Try multiple API services
+        # Strategy 3: Try third-party API services
         print("[INFO] Trying third-party API services...")
         api_funcs = [
             ("SnapInsta API", lambda: VideoDownloader._try_snapinsta_api(url, shortcode)),
@@ -138,11 +151,11 @@ class VideoDownloader:
                 print(f"[WARN] {api_name} failed: {e}")
                 continue
         
-        raise Exception("All Instagram download methods failed. Add cookies to assets/instagram_cookies.txt")
+        raise Exception("All Instagram download methods failed. Try /login_instagram to authenticate.")
     
     @staticmethod
     def _try_ytdlp_with_cookies(url: str, output_path: str, cookies_file: str) -> tuple[str, dict]:
-        """Download Instagram video using yt-dlp with authentication cookies."""
+        """Try to download Instagram video using yt-dlp with authentication cookies."""
         import shutil
         
         src_ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
@@ -161,35 +174,28 @@ class VideoDownloader:
             'quiet': True,
             'no_warnings': True,
             'ffmpeg_location': dest_ffmpeg,
-            'cookiefile': cookies_file,  # Use browser cookies
             'socket_timeout': 30,
             'retries': 3,
+            'cookiefile': cookies_file,
         }
-        
-        metadata = {'title': 'Instagram Video', 'description': 'N/A', 'uploader': 'N/A', 'tags': []}
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            metadata = {
-                'title': info.get('title', 'Instagram Video'),
-                'description': info.get('description', 'N/A'),
-                'uploader': info.get('uploader', 'N/A'),
-                'tags': info.get('tags', [])
-            }
+            
+            if info:
+                metadata = {
+                    'title': info.get('title', 'Instagram Video'),
+                    'description': info.get('description', 'N/A'),
+                    'uploader': info.get('uploader', 'N/A'),
+                    'tags': info.get('tags', [])
+                }
+                
+                # Verify file exists
+                if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+                    print("✅ Instagram video downloaded with authentication")
+                    return output_path, metadata
         
-        # Verify file exists
-        final_path = output_path
-        if not os.path.exists(final_path):
-            if os.path.exists(output_path + ".mp4"):
-                final_path = output_path + ".mp4"
-            else:
-                raise FileNotFoundError(f"Download finished but file not found: {output_path}")
-        
-        if os.path.getsize(final_path) < 1000:
-            raise Exception("Downloaded file is too small, likely failed")
-        
-        print("✅ Downloaded via yt-dlp with cookies!")
-        return final_path, metadata
+        return None
     
     @staticmethod
     def _try_snapinsta_api(url: str, shortcode: str) -> str:
