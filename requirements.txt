@@ -12,6 +12,7 @@ requests
 g4f
 curl_cffi
 google-generativeai
+instagrapi
 playwright
 flask
 pytesseract

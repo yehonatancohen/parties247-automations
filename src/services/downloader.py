@@ -54,8 +54,9 @@ class VideoDownloader:
     def _download_instagram_api(url: str, output_path: str) -> tuple[str, dict]:
         """
         Download Instagram video using multiple strategies:
-        1. First try with saved authentication cookies (if user is logged in)
-        2. Then try third-party API services
+        1. First try direct download via instagrapi (if logged in)
+        2. Then try yt-dlp with saved cookies
+        3. Finally try third-party API services
         """
         print(f"⬇️ Downloading Instagram...")
         metadata = {'title': 'Instagram Video', 'description': 'N/A', 'uploader': 'N/A', 'tags': []}
@@ -67,10 +68,21 @@ class VideoDownloader:
             raise Exception("Could not extract Instagram shortcode from URL")
         shortcode = shortcode_match.group(1)
         
-        # Strategy 1: Try with authenticated cookies if available
         ig_auth = get_instagram_auth()
+        
+        # Strategy 1: Direct download via instagrapi (most reliable if logged in)
         if ig_auth.has_saved_session():
-            print("[INFO] Using saved Instagram session for download...")
+            print("[INFO] Trying direct download via instagrapi...")
+            try:
+                result = ig_auth.download_video(url, output_path)
+                if result and os.path.exists(result) and os.path.getsize(result) > 1000:
+                    print("✅ Downloaded via instagrapi!")
+                    return result, metadata
+            except Exception as e:
+                print(f"[WARN] Instagrapi download failed: {e}")
+            
+            # Strategy 2: Try yt-dlp with cookies
+            print("[INFO] Trying yt-dlp with Instagram cookies...")
             try:
                 cookies_file = ig_auth.get_cookies_for_ytdlp()
                 if cookies_file:
@@ -78,9 +90,9 @@ class VideoDownloader:
                     if result:
                         return result
             except Exception as e:
-                print(f"[WARN] Authenticated download failed: {e}")
+                print(f"[WARN] yt-dlp with cookies failed: {e}")
         
-        # Strategy 2: Try third-party API services
+        # Strategy 3: Try third-party API services
         print("[INFO] Trying third-party API services...")
         api_funcs = [
             ("SnapInsta API", lambda: VideoDownloader._try_snapinsta_api(url, shortcode)),

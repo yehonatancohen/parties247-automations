@@ -1,28 +1,36 @@
 """
-Instagram Authentication Service
+Instagram Authentication Service using Instagrapi
 
-Handles Instagram login via Playwright with support for:
+Uses the instagrapi library for direct Instagram API access:
 - Username/password login
-- 2FA code verification
-- Session cookie storage and reuse
+- 2FA code verification  
+- Session storage and reuse
+- Direct video download capability
 """
 
 import os
 import json
-import asyncio
-from playwright.async_api import async_playwright
+from typing import Optional, Callable, Awaitable
 from config import Config
+
+# Will be imported on first use to avoid import errors if not installed
+_Client = None
+
+def _get_client_class():
+    """Lazy import of instagrapi Client."""
+    global _Client
+    if _Client is None:
+        from instagrapi import Client
+        _Client = Client
+    return _Client
 
 
 class InstagramAuth:
-    """Instagram authentication manager using Playwright."""
+    """Instagram authentication manager using instagrapi."""
     
     _instance = None
-    _browser = None
-    _context = None
-    _page = None
+    _client = None
     _is_logged_in = False
-    _pending_2fa_callback = None
     
     @classmethod
     def get_instance(cls):
@@ -33,272 +41,272 @@ class InstagramAuth:
     
     def __init__(self):
         self._is_logged_in = False
-        self._pending_2fa_callback = None
+        self._client = None
+    
+    def _get_client(self):
+        """Get or create the Instagram client."""
+        if self._client is None:
+            Client = _get_client_class()
+            self._client = Client()
+            # Set some default settings for reliability
+            self._client.delay_range = [1, 3]
+        return self._client
+    
+    def _get_session_file(self) -> str:
+        """Get the session file path."""
+        return os.path.join(Config.INSTAGRAM_SESSION_DIR, "session.json")
     
     @staticmethod
     def has_saved_session() -> bool:
-        """Check if we have a saved session (cookies)."""
-        return os.path.exists(Config.INSTAGRAM_COOKIES_FILE)
+        """Check if we have a saved session."""
+        session_file = os.path.join(Config.INSTAGRAM_SESSION_DIR, "session.json")
+        return os.path.exists(session_file)
     
-    @staticmethod
-    def clear_session():
+    def clear_session(self):
         """Clear saved session (logout)."""
+        session_file = self._get_session_file()
+        if os.path.exists(session_file):
+            os.remove(session_file)
+        
+        # Also clear cookies file if exists
         if os.path.exists(Config.INSTAGRAM_COOKIES_FILE):
             os.remove(Config.INSTAGRAM_COOKIES_FILE)
-            print("[INFO] Instagram session cleared")
+        
+        self._client = None
+        self._is_logged_in = False
+        print("[INFO] Instagram session cleared")
     
-    @staticmethod
-    def save_cookies(cookies: list):
-        """Save cookies to file."""
-        os.makedirs(Config.INSTAGRAM_SESSION_DIR, exist_ok=True)
-        with open(Config.INSTAGRAM_COOKIES_FILE, 'w') as f:
-            json.dump(cookies, f)
-        print("[INFO] Instagram cookies saved")
+    def _save_session(self):
+        """Save session to file."""
+        if self._client:
+            os.makedirs(Config.INSTAGRAM_SESSION_DIR, exist_ok=True)
+            session_file = self._get_session_file()
+            self._client.dump_settings(session_file)
+            print("[INFO] Instagram session saved")
     
-    @staticmethod
-    def load_cookies() -> list:
-        """Load cookies from file."""
-        if os.path.exists(Config.INSTAGRAM_COOKIES_FILE):
-            with open(Config.INSTAGRAM_COOKIES_FILE, 'r') as f:
-                return json.load(f)
-        return []
+    def _load_session(self) -> bool:
+        """Load session from file. Returns True if successful."""
+        session_file = self._get_session_file()
+        if not os.path.exists(session_file):
+            return False
+        
+        try:
+            client = self._get_client()
+            client.load_settings(session_file)
+            
+            # Verify the session is still valid
+            client.get_timeline_feed()
+            self._is_logged_in = True
+            print("[INFO] Loaded existing Instagram session")
+            return True
+        except Exception as e:
+            print(f"[WARN] Failed to load session: {e}")
+            self._client = None
+            return False
     
-    async def login(self, username: str, password: str, on_2fa_required=None) -> dict:
+    async def login(
+        self, 
+        username: str, 
+        password: str, 
+        on_2fa_required: Optional[Callable[[], Awaitable[str]]] = None
+    ) -> dict:
         """
         Login to Instagram with username and password.
         
         Args:
             username: Instagram username
             password: Instagram password
-            on_2fa_required: Async callback function that will be called if 2FA is needed.
-                            Should return the 2FA code as a string.
+            on_2fa_required: Async callback that returns the 2FA/verification code
         
         Returns:
-            dict with 'success' (bool) and 'message' (str)
+            dict with 'success' (bool), 'message' (str), and optionally 'needs_2fa' (bool)
         """
-        playwright = None
-        browser = None
+        import asyncio
         
         try:
-            playwright = await async_playwright().start()
-            browser = await playwright.chromium.launch(headless=True)
-            context = await browser.new_context(
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                viewport={'width': 1280, 'height': 720}
-            )
-            page = await context.new_page()
+            client = self._get_client()
             
-            print("[INFO] Navigating to Instagram login page...")
-            await page.goto('https://www.instagram.com/accounts/login/', wait_until='networkidle', timeout=60000)
+            # Try to login
+            print(f"[INFO] Attempting Instagram login for {username}...")
             
-            # Wait for login form
-            await page.wait_for_selector('input[name="username"]', timeout=30000)
+            # instagrapi handles 2FA through a callback
+            verification_code = None
             
-            # Accept cookies if dialog appears
-            try:
-                accept_btn = page.locator('button:has-text("Allow all cookies"), button:has-text("Accept")')
-                if await accept_btn.count() > 0:
-                    await accept_btn.first.click()
-                    await asyncio.sleep(1)
-            except:
-                pass
+            def handle_2fa_challenge(username, choice):
+                """Called when 2FA is required."""
+                # choice is typically the verification method (e.g., 'sms', 'email')
+                print(f"[INFO] 2FA required for {username}, method: {choice}")
+                return verification_code
             
-            print("[INFO] Entering credentials...")
-            await page.fill('input[name="username"]', username)
-            await page.fill('input[name="password"]', password)
-            
-            # Click login button
-            await page.click('button[type="submit"]')
-            
-            # Wait for response - could be success, 2FA, or error
-            await asyncio.sleep(3)
-            
-            # Check for various outcomes
-            # 1. Check for error message
-            error_msgs = page.locator('#slfErrorAlert, [role="alert"], p[data-testid="login-error-message"]')
-            if await error_msgs.count() > 0:
-                error_text = await error_msgs.first.inner_text()
-                return {'success': False, 'message': f'Login failed: {error_text}'}
-            
-            # 2. Check for 2FA verification
-            try:
-                # Check multiple possible 2FA indicators
-                twofa_indicators = [
-                    'input[name="verificationCode"]',
-                    'input[name="approvals_code"]',
-                    'input[aria-label*="security code"]',
-                    'input[placeholder*="Code"]',
-                ]
-                
-                is_2fa = False
-                for selector in twofa_indicators:
-                    if await page.locator(selector).count() > 0:
-                        is_2fa = True
-                        break
-                
-                # Also check for 2FA text
-                page_text = await page.content()
-                if 'security code' in page_text.lower() or 'verification code' in page_text.lower():
-                    is_2fa = True
-                
-                if is_2fa:
-                    print("[INFO] 2FA verification required")
-                    
-                    if on_2fa_required is None:
-                        return {
-                            'success': False, 
-                            'message': '2FA required but no callback provided',
-                            'needs_2fa': True
-                        }
-                    
-                    # Request 2FA code from user
-                    code = await on_2fa_required()
-                    
-                    if not code:
-                        return {'success': False, 'message': '2FA code not provided'}
-                    
-                    # Find and fill the 2FA input
-                    for selector in twofa_indicators:
-                        input_field = page.locator(selector)
-                        if await input_field.count() > 0:
-                            await input_field.fill(code)
-                            break
-                    
-                    # Click verify/confirm button
-                    confirm_btns = ['button:has-text("Confirm")', 'button:has-text("Verify")', 'button[type="submit"]']
-                    for btn_selector in confirm_btns:
-                        btn = page.locator(btn_selector)
-                        if await btn.count() > 0:
-                            await btn.first.click()
-                            break
-                    
-                    await asyncio.sleep(3)
-            except Exception as e:
-                print(f"[WARN] 2FA check error: {e}")
-            
-            # 3. Check if we're now logged in (look for home page elements)
-            await asyncio.sleep(2)
-            current_url = page.url
-            
-            # Success indicators
-            if 'challenge' not in current_url and '/accounts/login' not in current_url:
-                # Try to verify by checking for home page elements
+            # If 2FA callback is provided, we need to handle it specially
+            if on_2fa_required:
+                # First attempt without 2FA
                 try:
-                    # Wait for some indicator that we're logged in
-                    await page.wait_for_selector('svg[aria-label="Home"], a[href="/"], nav', timeout=10000)
-                    
-                    # Save cookies
-                    cookies = await context.cookies()
-                    self.save_cookies(cookies)
+                    client.login(username, password)
                     self._is_logged_in = True
-                    
-                    print("[INFO] Instagram login successful!")
+                    self._save_session()
                     return {'success': True, 'message': 'Login successful!'}
-                except:
-                    pass
-            
-            # Check for "Save login info" prompt - this means login succeeded
-            if 'Save Your Login Info' in await page.content() or 'save-device' in current_url:
-                cookies = await context.cookies()
-                self.save_cookies(cookies)
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    
+                    # Check if it's a 2FA challenge
+                    if 'challenge' in error_msg or 'two-factor' in error_msg or 'verification' in error_msg or 'code' in error_msg:
+                        print("[INFO] 2FA verification required...")
+                        
+                        # Get the code from user via callback
+                        code = await on_2fa_required()
+                        
+                        if not code:
+                            return {'success': False, 'message': '2FA code not provided'}
+                        
+                        # Try login with verification code
+                        try:
+                            client.login(username, password, verification_code=code)
+                            self._is_logged_in = True
+                            self._save_session()
+                            return {'success': True, 'message': 'Login successful with 2FA!'}
+                        except Exception as e2:
+                            return {'success': False, 'message': f'2FA verification failed: {str(e2)}'}
+                    else:
+                        return {'success': False, 'message': f'Login failed: {str(e)}'}
+            else:
+                # Simple login without 2FA handling
+                client.login(username, password)
                 self._is_logged_in = True
+                self._save_session()
                 return {'success': True, 'message': 'Login successful!'}
-            
-            # If we get here, something went wrong
-            return {'success': False, 'message': 'Login failed - unknown state. Check if credentials are correct.'}
-            
-        except Exception as e:
-            print(f"[ERROR] Instagram login failed: {e}")
-            return {'success': False, 'message': f'Login error: {str(e)}'}
-        
-        finally:
-            if browser:
-                await browser.close()
-            if playwright:
-                await playwright.stop()
-    
-    async def verify_session(self) -> bool:
-        """
-        Verify if the saved session is still valid.
-        Returns True if logged in, False otherwise.
-        """
-        if not self.has_saved_session():
-            return False
-        
-        playwright = None
-        browser = None
-        
-        try:
-            playlist = await async_playwright().start()
-            browser = await playwright.chromium.launch(headless=True)
-            context = await browser.new_context(
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            )
-            
-            # Load saved cookies
-            cookies = self.load_cookies()
-            await context.add_cookies(cookies)
-            
-            page = await context.new_page()
-            await page.goto('https://www.instagram.com/', wait_until='networkidle', timeout=30000)
-            
-            # Check if we're logged in
-            current_url = page.url
-            if '/accounts/login' in current_url:
-                self._is_logged_in = False
-                return False
-            
-            # Try to find logged-in indicators
-            try:
-                await page.wait_for_selector('svg[aria-label="Home"], a[href="/explore/"]', timeout=5000)
-                self._is_logged_in = True
-                return True
-            except:
-                self._is_logged_in = False
-                return False
                 
         except Exception as e:
-            print(f"[WARN] Session verification failed: {e}")
-            return False
-        
-        finally:
-            if browser:
-                await browser.close()
-            if playwright:
-                await playwright.stop()
+            error_msg = str(e)
+            print(f"[ERROR] Instagram login failed: {error_msg}")
+            
+            # Check for specific error types
+            if 'challenge' in error_msg.lower():
+                return {
+                    'success': False, 
+                    'message': 'Instagram requires verification. Please try again.',
+                    'needs_2fa': True
+                }
+            elif 'password' in error_msg.lower():
+                return {'success': False, 'message': 'Invalid password'}
+            elif 'user' in error_msg.lower():
+                return {'success': False, 'message': 'User not found'}
+            else:
+                return {'success': False, 'message': f'Login error: {error_msg}'}
     
-    def get_cookies_for_ytdlp(self) -> str:
+    def login_with_session(self) -> bool:
+        """
+        Try to login using saved session.
+        Returns True if successful, False otherwise.
+        """
+        return self._load_session()
+    
+    def get_logged_in_client(self):
+        """
+        Get the logged-in client instance.
+        Returns None if not logged in.
+        """
+        if not self._is_logged_in:
+            if not self._load_session():
+                return None
+        return self._client
+    
+    def download_video(self, url: str, output_path: str) -> Optional[str]:
+        """
+        Download a video using the authenticated client.
+        
+        Args:
+            url: Instagram URL (reel, post, etc.)
+            output_path: Where to save the video
+            
+        Returns:
+            Path to downloaded file, or None if failed
+        """
+        import re
+        
+        client = self.get_logged_in_client()
+        if not client:
+            return None
+        
+        try:
+            # Extract media ID or shortcode from URL
+            # Patterns: /reel/ABC123/, /p/ABC123/, /reels/ABC123/
+            shortcode_match = re.search(r'/(?:p|reel|reels)/([A-Za-z0-9_-]+)', url)
+            if not shortcode_match:
+                print("[WARN] Could not extract shortcode from URL")
+                return None
+            
+            shortcode = shortcode_match.group(1)
+            
+            # Get media PK from shortcode
+            media_pk = client.media_pk_from_code(shortcode)
+            
+            # Get media info
+            media_info = client.media_info(media_pk)
+            
+            # Download based on media type
+            if media_info.media_type == 2:  # Video
+                path = client.video_download(media_pk, folder=os.path.dirname(output_path))
+                # Rename to our desired output path
+                if path and os.path.exists(str(path)):
+                    import shutil
+                    shutil.move(str(path), output_path)
+                    return output_path
+            elif media_info.media_type == 1:  # Photo
+                print("[INFO] Media is a photo, not a video")
+                return None
+            elif media_info.media_type == 8:  # Album/Carousel
+                # Try to find video in carousel
+                for resource in media_info.resources:
+                    if resource.video_url:
+                        path = client.video_download_by_url(str(resource.video_url), folder=os.path.dirname(output_path))
+                        if path and os.path.exists(str(path)):
+                            import shutil
+                            shutil.move(str(path), output_path)
+                            return output_path
+                print("[INFO] No video found in carousel")
+                return None
+                
+        except Exception as e:
+            print(f"[ERROR] Failed to download via instagrapi: {e}")
+            return None
+        
+        return None
+    
+    def get_cookies_for_ytdlp(self) -> Optional[str]:
         """
         Get cookies in Netscape format for yt-dlp.
-        Returns path to temp cookies file.
+        Returns path to temp cookies file, or None if not logged in.
         """
-        if not self.has_saved_session():
+        client = self.get_logged_in_client()
+        if not client:
             return None
         
-        cookies = self.load_cookies()
-        if not cookies:
-            return None
-        
-        # Convert to Netscape format
-        netscape_file = os.path.join(Config.TEMP_DIR, "instagram_cookies_netscape.txt")
-        
-        with open(netscape_file, 'w') as f:
-            f.write("# Netscape HTTP Cookie File\n")
-            f.write("# This file was generated automatically\n\n")
+        try:
+            # Get session cookies from instagrapi
+            settings = client.get_settings()
+            cookies = settings.get('cookies', {})
             
-            for cookie in cookies:
-                # Netscape format: domain, flag, path, secure, expiration, name, value
-                domain = cookie.get('domain', '.instagram.com')
-                flag = 'TRUE' if domain.startswith('.') else 'FALSE'
-                path = cookie.get('path', '/')
-                secure = 'TRUE' if cookie.get('secure', False) else 'FALSE'
-                expiry = int(cookie.get('expires', 0))
-                name = cookie.get('name', '')
-                value = cookie.get('value', '')
+            if not cookies:
+                return None
+            
+            # Convert to Netscape format
+            netscape_file = os.path.join(Config.TEMP_DIR, "instagram_cookies_netscape.txt")
+            
+            with open(netscape_file, 'w') as f:
+                f.write("# Netscape HTTP Cookie File\n")
+                f.write("# Generated by instagrapi session\n\n")
                 
-                f.write(f"{domain}\t{flag}\t{path}\t{secure}\t{expiry}\t{name}\t{value}\n")
-        
-        return netscape_file
+                for name, value in cookies.items():
+                    # Format: domain, flag, path, secure, expiration, name, value
+                    domain = ".instagram.com"
+                    f.write(f"{domain}\tTRUE\t/\tTRUE\t0\t{name}\t{value}\n")
+            
+            return netscape_file
+            
+        except Exception as e:
+            print(f"[WARN] Could not export cookies for yt-dlp: {e}")
+            return None
 
 
 # Singleton accessor
