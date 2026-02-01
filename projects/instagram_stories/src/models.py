@@ -8,7 +8,7 @@ import json
 from datetime import datetime
 from typing import Optional, List
 from dataclasses import dataclass, asdict
-from config import Config
+from stories_config import Config
 
 
 @dataclass

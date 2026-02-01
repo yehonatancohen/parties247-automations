@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw, ImageFont
 from instagrapi import Client
 from instagrapi.types import StoryLink
 
-from config import Config
+from stories_config import Config
 
 
 class InstagramClient:

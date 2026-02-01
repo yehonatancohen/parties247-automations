@@ -10,14 +10,8 @@ import os
 # Add project paths to sys.path
 PROJECTS = [
     {
-        "name": "video_creator",
+        "name": "parties247_bot",
         "path": "projects/video_creator/src",
-        "main_module": "main",
-        "main_function": "main"
-    },
-    {
-        "name": "instagram_stories",
-        "path": "projects/instagram_stories/src",
         "main_module": "main",
         "main_function": "main"
     }

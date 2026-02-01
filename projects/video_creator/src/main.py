@@ -26,6 +26,20 @@ from services.graphics import GraphicsEngine
 from services.ai_generator import AIGenerator
 from services.instagram_auth import get_instagram_auth
 
+# Import Instagram Stories Bot
+import sys
+current_dir = os.path.dirname(os.path.abspath(__file__))
+stories_src = os.path.abspath(os.path.join(current_dir, "../../instagram_stories/src"))
+if stories_src not in sys.path:
+    sys.path.append(stories_src)
+
+try:
+    from story_bot import setup_stories_bot
+    STORIES_BOT_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ Could not load Instagram Stories Bot: {e}")
+    STORIES_BOT_AVAILABLE = False
+
 # Initialize Services
 graphics_engine = GraphicsEngine()
 ai_generator = AIGenerator()
@@ -493,6 +507,14 @@ async def main():
     
     # Initialize the application and send startup notification
     await application.initialize()
+    
+    # Setup Instagram Stories Bot (if available)
+    if STORIES_BOT_AVAILABLE:
+        try:
+            await setup_stories_bot(application)
+        except Exception as e:
+            print(f"❌ Failed to setup Instagram Stories Bot: {e}")
+
     await send_startup_notification(application)
     
     # Start polling

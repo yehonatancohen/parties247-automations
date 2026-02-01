@@ -19,7 +19,7 @@ from telegram.ext import (
 )
 from telegram.request import HTTPXRequest
 
-from config import Config
+from stories_config import Config
 from models import Database, ScheduledStory
 from schedule_parser import parse_schedule, format_schedule_summary
 from services.instagram_client import InstagramClient
@@ -457,31 +457,18 @@ async def send_startup_notification(application):
             print(f"⚠️ Failed to send startup notification to {user_id}: {e}")
 
 
-async def main():
-    """Main entry point for the Instagram Stories bot."""
+async def setup_stories_bot(application):
+    """Setup the Instagram Stories bot handlers and services."""
     print("=" * 50)
-    print("📸 Instagram Stories Automation Bot")
+    print("📸 Setting up Instagram Stories Bot")
     print("=" * 50)
     
     Config.ensure_dirs()
     
-    # Check required config
-    if not Config.TELEGRAM_TOKEN:
-        print("❌ TELEGRAM_TOKEN not configured!")
-        return
-    
+    # Check if Instagram creds are configured
     if not Config.INSTAGRAM_USERNAME or not Config.INSTAGRAM_PASSWORD:
-        print("⚠️ Instagram credentials not configured - uploads will fail")
-    
-    # Build application
-    request = HTTPXRequest(
-        connection_pool_size=8,
-        read_timeout=300,
-        write_timeout=300,
-        connect_timeout=60
-    )
-    
-    application = ApplicationBuilder().token(Config.TELEGRAM_TOKEN).request(request).build()
+        if not os.environ.get('INSTAGRAM_COOKIES'):
+            print("⚠️ Instagram credentials not configured - uploads will fail")
     
     # Story scheduling conversation handler
     story_conv = ConversationHandler(
@@ -496,38 +483,14 @@ async def main():
         fallbacks=[CommandHandler('cancel', cancel)],
     )
     
-    # Add handlers
+    # Add handlers to the shared application
     application.add_handler(story_conv)
     application.add_handler(CommandHandler('mystories', my_stories))
     application.add_handler(CommandHandler('cancelstory', cancel_story_command))
-    application.add_handler(CommandHandler('help', help_command))
-    
-    # Initialize and start
-    await application.initialize()
+    application.add_handler(CommandHandler('help_stories', help_command))  # Renamed to avoid conflict
     
     # Restore scheduled jobs from database
     await restore_scheduled_jobs(application)
     
-    # Send startup notification
-    await send_startup_notification(application)
-    
-    # Start polling
-    await application.start()
-    await application.updater.start_polling()
-    
-    print("📸 Instagram Stories Bot is now running!")
-    
-    # Keep running
-    try:
-        while True:
-            await asyncio.sleep(1)
-    except (KeyboardInterrupt, SystemExit):
-        print("\n🛑 Shutting down...")
-    finally:
-        await application.updater.stop()
-        await application.stop()
-        await application.shutdown()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    # We skip startup notification here as the main bot handles it
+    print("📸 Instagram Stories handlers registered!")
