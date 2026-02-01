@@ -226,16 +226,16 @@ async def send_startup_notification(application):
     ig_status = "✅ מחובר" if ig_auth.has_saved_session() else "❌ לא מחובר"
     
     message = (
-        "🤖 *הבוט מוכן ופעיל!*\n\n"
+        r"🤖 *הבוט מוכן ופעיל!*" + "\n\n"
         f"⏰ זמן התחלה: `{startup_time}`\n"
-        "✅ כל המערכות עובדות תקין\n\n"
+        r"✅ כל המערכות עובדות תקין" + "\n\n"
         f"📸 סטטוס אינסטגרם: {ig_status}\n\n"
-        "*פקודות זמינות:*\n"
-        "• /start - ליצור סרטון חדש\n"
-        "• /login\\_instagram - התחבר לאינסטגרם\n"
-        "• /logout\\_instagram - התנתק מאינסטגרם\n"
-        "• /instagram\\_status - בדוק סטטוס\n"
-        "• /cancel - ביטול פעולה נוכחית"
+        r"*פקודות זמינות:*" + "\n"
+        r"• /start - ליצור סרטון חדש" + "\n"
+        r"• /login\_instagram - התחבר לאינסטגרם" + "\n"
+        r"• /logout\_instagram - התנתק מאינסטגרם" + "\n"
+        r"• /instagram\_status - בדוק סטטוס" + "\n"
+        r"• /cancel - ביטול פעולה נוכחית"
     )
     
     for user_id in allowed_users:
@@ -438,16 +438,16 @@ async def instagram_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if ig_auth.has_saved_session():
         await update.message.reply_text(
-            "✅ *סטטוס אינסטגרם: מחובר*\n\n"
-            "הורדת סרטונים מאינסטגרם תעבוד באמינות גבוהה.\n\n"
-            "• להתנתק: /logout\_instagram",
+            r"✅ *סטטוס אינסטגרם: מחובר*" + "\n\n"
+            r"הורדת סרטונים מאינסטגרם תעבוד באמינות גבוהה." + "\n\n"
+            r"• להתנתק: /logout\_instagram",
             parse_mode='Markdown'
         )
     else:
         await update.message.reply_text(
-            "❌ *סטטוס אינסטגרם: לא מחובר*\n\n"
-            "הורדת סרטונים מאינסטגרם עשויה להיכשל עקב הגבלות.\n\n"
-            "• להתחבר: /login\_instagram",
+            r"❌ *סטטוס אינסטגרם: לא מחובר*" + "\n\n"
+            r"הורדת סרטונים מאינסטגרם עשויה להיכשל עקב הגבלות." + "\n\n"
+            r"• להתחבר: /login\_instagram",
             parse_mode='Markdown'
         )
 
