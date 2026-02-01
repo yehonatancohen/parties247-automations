@@ -6,7 +6,6 @@ Each project runs in its own asyncio task.
 import asyncio
 import sys
 import os
-import importlib.util
 
 # Add project paths to sys.path
 PROJECTS = [
@@ -25,68 +24,67 @@ PROJECTS = [
 ]
 
 
-def load_project_main(project: dict):
-    """Dynamically load a project's main module."""
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    project_path = os.path.join(base_dir, project["path"])
-    
-    # Check if project exists
-    main_file = os.path.join(project_path, f"{project['main_module']}.py")
-    if not os.path.exists(main_file):
-        print(f"⚠️  Project '{project['name']}' not found or not initialized (missing {main_file})")
-        return None
-    
-    # Save current directory and sys.path state
-    original_cwd = os.getcwd()
-    original_sys_path = sys.path.copy()
-    
-    try:
-        # Change to project directory so relative imports work
-        os.chdir(project_path)
-        
-        # Add project path to sys.path at the beginning
-        if project_path not in sys.path:
-            sys.path.insert(0, project_path)
-        
-        # Load the module
-        spec = importlib.util.spec_from_file_location(
-            f"{project['name']}.{project['main_module']}", 
-            main_file
-        )
-        module = importlib.util.module_from_spec(spec)
-        
-        # Set the module's __name__ properly
-        sys.modules[f"{project['name']}_{project['main_module']}"] = module
-        
-        spec.loader.exec_module(module)
-        return getattr(module, project["main_function"], None)
-        
-    except Exception as e:
-        print(f"❌ Failed to load project '{project['name']}': {e}")
-        import traceback
-        traceback.print_exc()
-        return None
-    finally:
-        # Restore original cwd (but keep sys.path changes for the loaded modules)
-        os.chdir(original_cwd)
 
-
-async def run_project(project: dict):
-    """Run a single project's main function."""
+async def run_project_process(project: dict):
+    """Run a project in a separate process."""
     print(f"🚀 Starting project: {project['name']}")
     
-    main_func = load_project_main(project)
-    if main_func is None:
-        print(f"⏭️  Skipping project '{project['name']}' (not available)")
-        return
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    project_cwd = os.path.join(base_dir, project["path"])
+    main_file = f"{project['main_module']}.py"
     
-    try:
-        if asyncio.iscoroutinefunction(main_func):
-            await main_func()
-        else:
-            await asyncio.to_thread(main_func)
-    except Exception as e:
-        print(f"❌ Project '{project['name']}' crashed: {e}")
+    # Check if file exists
+    if not os.path.exists(os.path.join(project_cwd, main_file)):
+        print(f"⚠️  Project '{project['name']}' missing {main_file} in {project_cwd}")
+        return
+
+    while True:
+        try:
+            # Run as separate process with its own working directory
+            # This ensures imports like 'from services...' resolve to the correct project
+            process = await asyncio.create_subprocess_exec(
+                sys.executable, 
+                main_file,
+                cwd=project_cwd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            print(f"✅ Project '{project['name']}' started (PID: {process.pid})")
+            
+            # Helper to print output
+            async def log_stream(stream, prefix):
+                while True:
+                    line = await stream.readline()
+                    if not line: break
+                    try:
+                        decoded = line.decode().strip()
+                        if decoded: print(f"[{prefix}] {decoded}")
+                    except: pass
+
+            # Monitor outputs
+            await asyncio.gather(
+                log_stream(process.stdout, project['name']),
+                log_stream(process.stderr, f"{project['name']} ERROR")
+            )
+            
+            await process.wait()
+            
+            print(f"❌ Project '{project['name']}' exited with code {process.returncode}. Restarting in 5s...")
+            await asyncio.sleep(5)
+            
+        except asyncio.CancelledError:
+            print(f"🛑 Stopping project '{project['name']}'...")
+            if process:
+                process.terminate()
+                try:
+                    await process.wait()
+                except:
+                    pass
+            break
+        except Exception as e:
+            print(f"🔥 Error launching '{project['name']}': {e}")
+            await asyncio.sleep(5)
 
 
 async def main():
@@ -98,16 +96,24 @@ async def main():
     print("=" * 60)
     
     # Create tasks for all projects
-    tasks = [asyncio.create_task(run_project(project)) for project in PROJECTS]
+    tasks = [asyncio.create_task(run_project_process(project)) for project in PROJECTS]
     
-    # Wait for all projects (they should run indefinitely)
+    # Wait for all projects
     try:
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.gather(*tasks)
     except (KeyboardInterrupt, SystemExit):
-        print("\n🛑 Shutting down all projects...")
+        print("\n🛑 Shutting down suite...")
         for task in tasks:
             task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Windows-specific event loop policy for subprocesses
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+        
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
