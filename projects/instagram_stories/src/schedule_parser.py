@@ -4,10 +4,16 @@ Supports Hebrew and English input.
 """
 
 import re
+import pytz
 from datetime import datetime, timedelta
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
 
+
+def get_local_now() -> datetime:
+    """Get current time in Israel timezone (naive)."""
+    il_tz = pytz.timezone('Asia/Jerusalem')
+    return datetime.now(il_tz).replace(tzinfo=None) # Return naive for easier comparison
 
 @dataclass
 class ParsedSchedule:
@@ -75,7 +81,7 @@ def parse_time(time_str: str) -> Tuple[int, int]:
 def parse_date(date_str: str) -> datetime:
     """Parse a date string like '15/02' or '15/02/2025'."""
     date_str = date_str.strip()
-    now = datetime.now()
+    now = get_local_now()
     
     # DD/MM format
     match = re.match(r'^(\d{1,2})[/\-.](\d{1,2})$', date_str)
@@ -100,7 +106,7 @@ def parse_date(date_str: str) -> datetime:
 
 def get_next_weekday(target_day: int, time_hour: int, time_minute: int) -> datetime:
     """Get the next occurrence of a specific weekday."""
-    now = datetime.now()
+    now = get_local_now()
     current_day = now.weekday()
     days_ahead = target_day - current_day
     
@@ -117,7 +123,7 @@ def get_next_weekday(target_day: int, time_hour: int, time_minute: int) -> datet
 
 def distribute_times_this_week(count: int, prefer_evening: bool = True) -> List[datetime]:
     """Distribute N uploads evenly across the remaining week."""
-    now = datetime.now()
+    now = get_local_now()
     end_of_week = now + timedelta(days=(6 - now.weekday()))  # Until Sunday
     
     # Calculate available days
@@ -164,7 +170,7 @@ def parse_schedule(text: str) -> ParsedSchedule:
     - "15/02 20:00" (specific date)
     """
     text = text.strip().lower()
-    now = datetime.now()
+    now = get_local_now()
     
     # Pattern: "X times this week"
     match = re.search(r'(\d+)\s*(?:times?|פעמים?)\s*(?:this\s*week|השבוע)', text)

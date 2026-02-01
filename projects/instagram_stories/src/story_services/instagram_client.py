@@ -282,6 +282,30 @@ class InstagramClient:
             return True
             
         except Exception as e:
+            from instagrapi.exceptions import LoginRequired
+            
+            # If login required, try to re-login with password
+            if isinstance(e, LoginRequired) or "login_required" in str(e).lower():
+                print("⚠️ Session expired/invalid. Attempting fresh login...")
+                try:
+                    # Force login with password
+                    self.client = Client() # Reset client
+                    self._setup_client()
+                    self.client.login(Config.INSTAGRAM_USERNAME, Config.INSTAGRAM_PASSWORD)
+                    self.logged_in = True
+                    
+                    # Retry upload
+                    print("🔄 Retrying upload after login...")
+                    self.client.photo_upload_to_story(
+                        prepared_image,
+                        links=links
+                    )
+                    print("✅ Story uploaded successfully (after retry)!")
+                    return True
+                except Exception as login_e:
+                    print(f"❌ Re-login/Retry failed: {login_e}")
+                    raise e # Raise original error if retry fails
+            
             print(f"❌ Story upload failed: {e}")
             raise
         
