@@ -16,13 +16,7 @@ from config import Config
 # Will be imported on first use to avoid import errors if not installed
 _Client = None
 
-def _get_client_class():
-    """Lazy import of instagrapi Client."""
-    global _Client
-    if _Client is None:
-        from instagrapi import Client
-        _Client = Client
-    return _Client
+# Lazy loader removed as instagrapi is no longer used.
 
 
 
