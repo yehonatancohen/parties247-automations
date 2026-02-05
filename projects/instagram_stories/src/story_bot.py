@@ -22,24 +22,12 @@ from telegram.request import HTTPXRequest
 from stories_config import Config
 from models import Database, ScheduledStory
 from schedule_parser import parse_schedule, format_schedule_summary, ParsedSchedule, get_local_now
-from story_services.instagram_client import InstagramClient
-
 
 # Initialize services
 db = Database()
-instagram_client: InstagramClient = None  # Initialized on first use
 
 # Conversation states
 IMAGE, LINK, SCHEDULE, LINK_TEXT, CONFIRM = range(5)
-
-
-def get_instagram_client() -> InstagramClient:
-    """Get or create Instagram client (lazy initialization)."""
-    global instagram_client
-    if instagram_client is None:
-        instagram_client = InstagramClient()
-        instagram_client.login()
-    return instagram_client
 
 
 async def story_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -278,8 +266,8 @@ async def confirm_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(
         f"✅ *נשמר בהצלחה!*\n\n"
-        f"📸 {saved_count} סטוריז תוזמנו להעלאה.\n"
-        f"תקבל התראה כשכל סטורי יעלה.\n\n"
+        f"📸 {saved_count} סטוריז תוזמנו לתזכורת.\n"
+        f"תקבל את התמונה והלינק בזמן שנבחר.\n\n"
         f"השתמש ב-/mystories כדי לראות את כל הסטוריז המתוזמנים שלך.",
         parse_mode='Markdown',
         reply_markup=ReplyKeyboardRemove()
@@ -290,25 +278,23 @@ async def confirm_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def upload_story_job(context: ContextTypes.DEFAULT_TYPE):
-    """Background job to upload a scheduled story."""
+    """Background job to remind user to upload a scheduled story."""
     job_data = context.job.data
     
     try:
-        # Get Instagram client
-        client = get_instagram_client()
-        
-        # Upload story
-        client.upload_story(
-            image_path=job_data['image_path'],
-            link_url=job_data['link_url'],
-            link_text=job_data['link_text']
+        # Prepare caption with the link and text
+        caption = (
+            f"⏰ *תזכורת להעלאת סטורי!*\n\n"
+            f"🔗 לינק: {job_data['link_url']}\n"
+            f"💬 טקסט בסטורי: {job_data['link_text']}\n\n"
+            f"אנא העלה את הסטורי עכשיו ידנית דרך האפליקציה."
         )
         
-        # Notify user of success
-        await context.bot.send_message(
+        # Send the photo back to the user
+        await context.bot.send_photo(
             chat_id=job_data['user_id'],
-            text=f"✅ *הסטורי עלה בהצלחה!*\n\n"
-                 f"🔗 {job_data['link_url']}",
+            photo=job_data['image_path'],
+            caption=caption,
             parse_mode='Markdown'
         )
         
@@ -316,8 +302,8 @@ async def upload_story_job(context: ContextTypes.DEFAULT_TYPE):
         # Notify user of failure
         await context.bot.send_message(
             chat_id=job_data['user_id'],
-            text=f"❌ שגיאה בהעלאת הסטורי\n\n"
-                 f"פרטים: {str(e)}",
+            text=f"❌ שגיאה בשליחת תזכורת לסטורי\n\n"
+            f"פרטים: {str(e)}",
             parse_mode=None
         )
 
@@ -487,11 +473,6 @@ async def setup_stories_bot(application):
     print("=" * 50)
     
     Config.ensure_dirs()
-    
-    # Check if Instagram creds are configured
-    if not Config.INSTAGRAM_USERNAME or not Config.INSTAGRAM_PASSWORD:
-        if not os.environ.get('INSTAGRAM_COOKIES'):
-            print("⚠️ Instagram credentials not configured - uploads will fail")
     
     # Story scheduling conversation handler
     story_conv = ConversationHandler(
