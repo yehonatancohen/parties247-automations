@@ -34,13 +34,14 @@ class VideoDownloader:
     @staticmethod
     def download_video(url: str) -> tuple[str, dict]:
         """
-        Downloads a video using yt-dlp (primary) or Playwright (fallback).
+        Downloads a video using Cobalt (primary), yt-dlp, or Playwright.
         """
         output_filename = f"{uuid.uuid4()}.mp4"
         output_path = os.path.join(Config.TEMP_DIR, output_filename)
         
-        # Strategies: yt-dlp -> Playwright
+        # Strategies: Cobalt -> yt-dlp -> Playwright
         strategies = [
+            VideoDownloader._download_with_cobalt,
             VideoDownloader._download_with_ytdlp,
             VideoDownloader._download_with_playwright
         ]
@@ -55,7 +56,66 @@ class VideoDownloader:
                 errors.append(f"{strategy.__name__}: {e}")
                 
         raise Exception(f"All download strategies failed. Details: {'; '.join(errors)}")
-    
+
+    @staticmethod
+    def _download_with_cobalt(url: str, output_path: str) -> tuple[str, dict]:
+        """Download using Cobalt API (reliable for cleaner links)."""
+        print(f"⬇️ Downloading via Cobalt API...")
+        
+        # Cobalt API endpoint (using public instances)
+        # We can try a few known reliable instances if the main one is busy, 
+        # but api.cobalt.tools is the official one.
+        api_url = "https://api.cobalt.tools/api/json"
+        
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        
+        payload = {
+            "url": url,
+            "vCodec": "h264",
+            "vQuality": "1080",
+            "aFormat": "mp3",
+            "filenamePattern": "basic"
+        }
+        
+        try:
+            resp = requests.post(api_url, json=payload, headers=headers, timeout=20)
+            data = resp.json()
+            
+            if resp.status_code != 200 or data.get('status') == 'error':
+                 raise Exception(f"Cobalt API Error: {data.get('text', 'Unknown error')}")
+            
+            download_url = data.get('url')
+            if not download_url:
+                 # sometimes it returns a picker for multiple items
+                 if data.get('picker'):
+                     download_url = data['picker'][0]['url']
+                 else:
+                     raise Exception("No download URL returned from Cobalt")
+
+            # Download the actual file
+            with requests.get(download_url, stream=True, timeout=60) as r:
+                r.raise_for_status()
+                with open(output_path, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192): 
+                        f.write(chunk)
+            
+            # Simple metadata since Cobalt doesn't always give full info
+            metadata = {
+                'title': 'Instagram Video',
+                'description': 'Downloaded via Cobalt',
+                'uploader': 'Instagram User',
+                'tags': []
+            }
+            
+            return output_path, metadata
+            
+        except Exception as e:
+            raise Exception(f"Cobalt download failed: {str(e)}")
+
     @staticmethod
     def _download_with_ytdlp(url: str, output_path: str) -> tuple[str, dict]:
         print(f"⬇️ Downloading via yt-dlp...")
