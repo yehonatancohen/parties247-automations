@@ -56,12 +56,66 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         r"👋 היי! בוא ניצור סרטון חדש." + "\n\n"
-        r"שלח לי את הלינק לסרטון (TikTok/Instagram/YouTube):" + "\n\n"
+        r"שלח לי את הלינק לסרטון (TikTok/Instagram/YouTube)" + "\n"
+        r"*או שלח לי סרטון ישירות מהגלריה!* 📤" + "\n\n"
         r"_(או שלח /story לתזמון סטורי לאינסטגרם)_",
         parse_mode='Markdown',
         reply_markup=ReplyKeyboardRemove()
     )
     return LINK
+
+
+
+async def receive_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle direct video upload from user"""
+    video = update.message.video or update.message.document
+    
+    # Basic validation
+    if not video:
+        await update.message.reply_text("❌ לא זוהה סרטון תקין.")
+        return LINK
+        
+    status_msg = await update.message.reply_text("📥 מוריד את הסרטון...")
+    
+    file_id = video.file_id
+    unique_id = video.file_unique_id
+    filename = f"upload_{unique_id}.mp4"
+    file_path = os.path.join(Config.TEMP_DIR, filename)
+    
+    try:
+        new_file = await context.bot.get_file(file_id)
+        await new_file.download_to_drive(custom_path=file_path)
+        
+        # Create metadata
+        metadata = {
+            'title': 'User Upload',
+            'description': update.message.caption or 'Uploaded video',
+            'uploader': 'User',
+            'duration': getattr(video, 'duration', 0),
+            'url': 'Uploaded File'
+        }
+        
+        # Store in context similar to download flow
+        context.user_data['link'] = 'Uploaded File'
+        
+        # Create a completed future to mock the background task
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        future.set_result((file_path, metadata))
+        
+        context.user_data['download_task'] = future
+        
+        await status_msg.edit_text("✅ הסרטון התקבל בהצלחה!")
+        
+        await update.message.reply_text(
+            "עכשיו שלח את הכותרת (שתופיע בגדול):"
+        )
+        return TITLE
+        
+    except Exception as e:
+        print(f"❌ Upload failed: {e}")
+        await status_msg.edit_text(f"❌ שגיאה בהורדת הסרטון: {e}")
+        return LINK
 
 
 async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -71,28 +125,37 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏳ בודק את הלינק...")
     
     # Check for playlist/stories info
-    info = await asyncio.to_thread(VideoDownloader.extract_info, link)
+    stories = await asyncio.to_thread(VideoDownloader.fetch_available_stories, link)
     
-    # If it's a playlist or has multiple entries (Stories)
-    if info and info.get('_type') == 'playlist' and info.get('entries'):
-        entries = list(info.get('entries'))
-        # Filter out "None" entries
-        entries = [e for e in entries if e]
+    # If multiple entries found
+    if len(stories) > 1:
+        context.user_data['playlist_entries'] = stories
+        context.user_data['original_link'] = link
         
-        if len(entries) > 1:
-            context.user_data['playlist_entries'] = entries
-            context.user_data['original_link'] = link
-            
-            msg = f"🔎 נמצאו {len(entries)} סטוריז/סרטונים:\n\n"
-            for i, entry in enumerate(entries[:10], 1):
-                title = entry.get('title', 'N/A')
-                duration = entry.get('duration') or 0
-                msg += f"{i}. {title} ({int(duration)}s)\n"
-            
-            msg += "\nשלח את מספר הסרטון שברצונך להוריד:"
-            
-            await update.message.reply_text(msg)
-            return CHOOSE_STORY
+        msg = f"🔎 נמצאו {len(stories)} סטוריז/סרטונים:\n\n"
+        for i, entry in enumerate(stories[:15], 1):
+            title = entry.get('title', 'N/A')
+            duration = int(entry.get('duration', 0) or 0)
+            msg += f"{i}. {title} ({duration}s)\n"
+        
+        msg += "\nשלח את מספר הסרטון שברצונך להוריד:"
+        
+        await update.message.reply_text(msg)
+        return CHOOSE_STORY
+    
+    # Single video flow
+    if stories:
+        # Update link to the specific resolved URL if available, otherwise keep original
+        # Ideally we use the resolved one to be safe, but sometimes original is better context.
+        # For single video, let's stick to original or the one we found.
+        # But if stories has 1 entry, use that one's URL if it differs?
+        single_story = stories[0]
+        if single_story.get('url'):
+            link = single_story.get('url')
+            context.user_data['link'] = link
+
+    
+    # Fallback/Single flow continues below...
     
     # Fallback to single video flow
     
@@ -346,7 +409,10 @@ async def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={
-            LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_link)],
+            LINK: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_link),
+                MessageHandler(filters.VIDEO | filters.Document.VIDEO, receive_video)
+            ],
             CHOOSE_STORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_story_choice)],
             TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_title)],
             BODY: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_body)],

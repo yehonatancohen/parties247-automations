@@ -32,6 +32,51 @@ class VideoDownloader:
                 return {}
 
     @staticmethod
+    def fetch_available_stories(url: str) -> list[dict]:
+        """
+        Fetches metadata for all stories/videos available at the given URL.
+        Returns a list of dictionaries, each representing a story/video.
+        """
+        info = VideoDownloader.extract_info(url)
+        if not info:
+            return []
+            
+        stories = []
+        # Check for playlist or entries (covers playlists, stories, multi_video)
+        if 'entries' in info:
+            entries = info['entries']
+            # Filter None entries
+            entries = [e for e in entries if e]
+            
+            for entry in entries:
+                story_url = entry.get('url') or entry.get('webpage_url')
+                
+                # If url is relative or just an ID, try to fallback or keep as is.
+                # yt-dlp flat extraction usually gives enough info.
+                
+                stories.append({
+                    'id': entry.get('id'),
+                    'url': story_url,
+                    'title': entry.get('title') or entry.get('id', 'Unknown'),
+                    'duration': entry.get('duration', 0),
+                    'thumbnail': entry.get('thumbnail'),
+                    'original_url': url # Keep track of parent URL if needed
+                })
+        else:
+            # Single video
+            story_url = info.get('webpage_url') or info.get('url')
+            stories.append({
+                'id': info.get('id'),
+                'url': story_url,
+                'title': info.get('title') or info.get('id', 'Unknown'),
+                'duration': info.get('duration', 0),
+                'thumbnail': info.get('thumbnail'),
+                'original_url': url
+            })
+            
+        return stories
+
+    @staticmethod
     def download_video(url: str) -> tuple[str, dict]:
         """
         Downloads a video using Cobalt (primary), yt-dlp, or Playwright.
