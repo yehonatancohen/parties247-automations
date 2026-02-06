@@ -10,6 +10,30 @@ import imageio_ffmpeg
 
 class VideoDownloader:
     @staticmethod
+    def _create_temp_cookie_file() -> str | None:
+        """Helper to create a temp cookie file from env var."""
+        try:
+            cookies_content = os.environ.get('INSTAGRAM_COOKIES')
+            if not cookies_content:
+                return None
+            
+            import base64
+            try:
+                # Try decode base64
+                decoded = base64.b64decode(cookies_content).decode('utf-8')
+                cookies_content = decoded
+            except Exception:
+                pass
+            
+            cookie_file = os.path.join(Config.TEMP_DIR, f"cookies_{uuid.uuid4()}.txt")
+            with open(cookie_file, 'w') as f:
+                f.write(cookies_content)
+            return cookie_file
+        except Exception as e:
+            print(f"⚠️ Failed to setup cookies: {e}")
+            return None
+
+    @staticmethod
     def extract_info(url: str) -> dict:
         """
         Extract video info without downloading.
@@ -17,19 +41,32 @@ class VideoDownloader:
         """
         import yt_dlp
         
+        # Setup cookies
+        cookie_file = VideoDownloader._create_temp_cookie_file()
+        
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
             'extract_flat': True,  # Don't download, just list
         }
         
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            try:
-                info = ydl.extract_info(url, download=False)
-                return info
-            except Exception as e:
-                print(f"[WARN] extract_info failed: {e}")
-                return {}
+        if cookie_file:
+             ydl_opts['cookiefile'] = cookie_file
+             
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                try:
+                    info = ydl.extract_info(url, download=False)
+                    return info
+                except Exception as e:
+                    print(f"[WARN] extract_info failed: {e}")
+                    return {}
+        finally:
+            if cookie_file and os.path.exists(cookie_file):
+                try:
+                    os.remove(cookie_file)
+                except:
+                    pass
 
     @staticmethod
     def fetch_available_stories(url: str) -> list[dict]:
@@ -37,6 +74,18 @@ class VideoDownloader:
         Fetches metadata for all stories/videos available at the given URL.
         Returns a list of dictionaries, each representing a story/video.
         """
+        
+        # Expand Instagram Story Link to User Feed
+        import re
+        # Match stories/username/123 or stories/username/
+        ig_story_pattern = r'instagram\.com/stories/([^/?#&]+)'
+        match = re.search(ig_story_pattern, url)
+        if match:
+             username = match.group(1)
+             new_url = f"https://www.instagram.com/stories/{username}/"
+             print(f"[INFO] Expanding story link to full user feed: {new_url}")
+             url = new_url
+
         info = VideoDownloader.extract_info(url)
         if not info:
             return []
@@ -60,6 +109,7 @@ class VideoDownloader:
                     'title': entry.get('title') or entry.get('id', 'Unknown'),
                     'duration': entry.get('duration', 0),
                     'thumbnail': entry.get('thumbnail'),
+                    'upload_date': entry.get('upload_date'),
                     'original_url': url # Keep track of parent URL if needed
                 })
         else:
@@ -130,26 +180,10 @@ class VideoDownloader:
         }
         
         # Handle cookies from env var
-        cookie_file = None
-        try:
-            cookies_content = os.environ.get('INSTAGRAM_COOKIES')
-            if cookies_content:
-                import base64
-                # Decode base64 if needed
-                try:
-                    cookies_content = base64.b64decode(cookies_content).decode('utf-8')
-                except:
-                    pass
-                
-                # Write to temp file
-                cookie_file = os.path.join(Config.TEMP_DIR, f"cookies_{uuid.uuid4()}.txt")
-                with open(cookie_file, 'w') as f:
-                    f.write(cookies_content)
-                
-                ydl_opts['cookiefile'] = cookie_file
-                print("🍪 Using cookies from INSTAGRAM_COOKIES for yt-dlp")
-        except Exception as e:
-            print(f"⚠️ Failed to setup cookies for yt-dlp: {e}")
+        cookie_file = VideoDownloader._create_temp_cookie_file()
+        if cookie_file:
+            ydl_opts['cookiefile'] = cookie_file
+            print("🍪 Using cookies from INSTAGRAM_COOKIES for yt-dlp")
         
         # Internal Retry Loop
         max_retries = 3

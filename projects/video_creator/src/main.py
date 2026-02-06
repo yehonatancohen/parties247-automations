@@ -136,7 +136,13 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for i, entry in enumerate(stories[:15], 1):
             title = entry.get('title', 'N/A')
             duration = int(entry.get('duration', 0) or 0)
-            msg += f"{i}. {title} ({duration}s)\n"
+            date = entry.get('upload_date', '')
+            date_str = ""
+            if date and len(str(date)) == 8:
+                 # Format YYYYMMDD -> DD/MM
+                 date_str = f" [{date[6:8]}/{date[4:6]}]"
+            
+            msg += f"{i}. {title} ({duration}s){date_str}\n"
         
         msg += "\nשלח את מספר הסרטון שברצונך להוריד:"
         
