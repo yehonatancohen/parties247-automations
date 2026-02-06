@@ -39,9 +39,8 @@ class VideoDownloader:
         output_filename = f"{uuid.uuid4()}.mp4"
         output_path = os.path.join(Config.TEMP_DIR, output_filename)
         
-        # Strategies: Cobalt -> yt-dlp -> Playwright
+        # Strategies: yt-dlp -> Playwright
         strategies = [
-            VideoDownloader._download_with_cobalt,
             VideoDownloader._download_with_ytdlp,
             VideoDownloader._download_with_playwright
         ]
@@ -57,64 +56,7 @@ class VideoDownloader:
                 
         raise Exception(f"All download strategies failed. Details: {'; '.join(errors)}")
 
-    @staticmethod
-    def _download_with_cobalt(url: str, output_path: str) -> tuple[str, dict]:
-        """Download using Cobalt API (reliable for cleaner links)."""
-        print(f"⬇️ Downloading via Cobalt API...")
-        
-        # Cobalt API endpoint (using public instances)
-        # We can try a few known reliable instances if the main one is busy, 
-        # but api.cobalt.tools is the official one.
-        api_url = "https://api.cobalt.tools/api/json"
-        
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
-        
-        payload = {
-            "url": url,
-            "vCodec": "h264",
-            "vQuality": "1080",
-            "aFormat": "mp3",
-            "filenamePattern": "basic"
-        }
-        
-        try:
-            resp = requests.post(api_url, json=payload, headers=headers, timeout=20)
-            data = resp.json()
-            
-            if resp.status_code != 200 or data.get('status') == 'error':
-                 raise Exception(f"Cobalt API Error: {data.get('text', 'Unknown error')}")
-            
-            download_url = data.get('url')
-            if not download_url:
-                 # sometimes it returns a picker for multiple items
-                 if data.get('picker'):
-                     download_url = data['picker'][0]['url']
-                 else:
-                     raise Exception("No download URL returned from Cobalt")
 
-            # Download the actual file
-            with requests.get(download_url, stream=True, timeout=60) as r:
-                r.raise_for_status()
-                with open(output_path, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192): 
-                        f.write(chunk)
-            
-            # Simple metadata since Cobalt doesn't always give full info
-            metadata = {
-                'title': 'Instagram Video',
-                'description': 'Downloaded via Cobalt',
-                'uploader': 'Instagram User',
-                'tags': []
-            }
-            
-            return output_path, metadata
-            
-        except Exception as e:
-            raise Exception(f"Cobalt download failed: {str(e)}")
 
     @staticmethod
     def _download_with_ytdlp(url: str, output_path: str) -> tuple[str, dict]:
@@ -140,44 +82,73 @@ class VideoDownloader:
             'ffmpeg_location': dest_ffmpeg,
             'socket_timeout': 30,
             'retries': 3,
-            # 'cookiefile': ... # Removed as per user request to remove cookies
         }
+        
+        # Handle cookies from env var
+        cookie_file = None
+        try:
+            cookies_content = os.environ.get('INSTAGRAM_COOKIES')
+            if cookies_content:
+                import base64
+                # Decode base64 if needed
+                try:
+                    cookies_content = base64.b64decode(cookies_content).decode('utf-8')
+                except:
+                    pass
+                
+                # Write to temp file
+                cookie_file = os.path.join(Config.TEMP_DIR, f"cookies_{uuid.uuid4()}.txt")
+                with open(cookie_file, 'w') as f:
+                    f.write(cookies_content)
+                
+                ydl_opts['cookiefile'] = cookie_file
+                print("🍪 Using cookies from INSTAGRAM_COOKIES for yt-dlp")
+        except Exception as e:
+            print(f"⚠️ Failed to setup cookies for yt-dlp: {e}")
         
         # Internal Retry Loop
         max_retries = 3
         last_error = None
         
-        for attempt in range(1, max_retries + 1):
-            try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    metadata = {
-                        'title': info.get('title', 'N/A'),
-                        'description': info.get('description', 'N/A'),
-                        'uploader': info.get('uploader', 'N/A'),
-                        'tags': info.get('tags', [])
-                    }
-                
-                # Verify file exists (yt-dlp might append extension)
-                final_path = output_path
-                if not os.path.exists(final_path):
-                    # Check common extensions
-                    for ext in ['.mp4', '.mkv', '.webm']:
-                        if os.path.exists(output_path + ext):
-                            final_path = output_path + ext
-                            break
-                    else: 
-                         # Sometimes yt-dlp merges to mkv if mp4 unavailable
-                        raise FileNotFoundError(f"Download finished but file not found: {output_path}")
-                
-                return final_path, metadata
-            except Exception as e:
-                print(f"⚠️ yt-dlp attempt {attempt}/{max_retries} failed: {e}")
-                last_error = e
-                import time
-                time.sleep(2)
-        
-        raise last_error
+        try:
+            for attempt in range(1, max_retries + 1):
+                try:
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                        metadata = {
+                            'title': info.get('title', 'N/A'),
+                            'description': info.get('description', 'N/A'),
+                            'uploader': info.get('uploader', 'N/A'),
+                            'tags': info.get('tags', [])
+                        }
+                    
+                    # Verify file exists
+                    final_path = output_path
+                    if not os.path.exists(final_path):
+                        for ext in ['.mp4', '.mkv', '.webm']:
+                            if os.path.exists(output_path + ext):
+                                final_path = output_path + ext
+                                break
+                        else: 
+                             # Sometimes yt-dlp merges to mkv if mp4 unavailable
+                            raise FileNotFoundError(f"Download finished but file not found: {output_path}")
+                    
+                    return final_path, metadata
+                except Exception as e:
+                    print(f"⚠️ yt-dlp attempt {attempt}/{max_retries} failed: {e}")
+                    last_error = e
+                    import time
+                    time.sleep(2)
+            
+            raise last_error
+
+        finally:
+            # Cleanup cookie file
+            if cookie_file and os.path.exists(cookie_file):
+                try:
+                    os.remove(cookie_file)
+                except:
+                    pass
 
     @staticmethod
     def _download_with_playwright(url: str, output_path: str) -> tuple[str, dict]:
@@ -201,8 +172,53 @@ class VideoDownloader:
                     user_agent=device_agent,
                     viewport={'width': 375, 'height': 812}
                 )
+                # Add cookies if available
+                cookies_content = os.environ.get('INSTAGRAM_COOKIES')
+                if cookies_content:
+                    try:
+                        import base64
+                        try:
+                            # Try decode base64 first
+                            decoded = base64.b64decode(cookies_content).decode('utf-8')
+                            cookies_content = decoded
+                        except:
+                            pass
+                        
+                        # Parse netscape format
+                        domain_cookies = []
+                        for line in cookies_content.strip().split('\n'):
+                            if not line or line.startswith('#'): continue
+                            parts = line.split('\t')
+                            if len(parts) >= 7:
+                                domain_cookies.append({
+                                    'name': parts[5],
+                                    'value': parts[6],
+                                    'domain': parts[0],
+                                    'path': parts[2],
+                                    'expires': int(parts[4]) if parts[4] else -1,
+                                    'httpOnly': False,
+                                    'secure': parts[3] == 'TRUE',
+                                    'sameSite': 'None'
+                                })
+                        
+                        if domain_cookies:
+                            context.add_cookies(domain_cookies)
+                            print("🍪 Added cookies to Playwright context")
+                    except Exception as e:
+                        print(f"⚠️ Failed to add cookies to Playwright: {e}")
+
                 page = context.new_page()
-                page.goto(url, timeout=60000, wait_until='domcontentloaded')
+                try:
+                    page.goto(url, timeout=60000, wait_until='domcontentloaded')
+                except Exception as e:
+                    # Capture screenshot on navigation failure
+                    screenshot_path = os.path.join(Config.TEMP_DIR, f"error_nav_{uuid.uuid4()}.png")
+                    try:
+                        page.screenshot(path=screenshot_path)
+                        print(f"📸 Navigation failed. Screenshot saved to: {screenshot_path}")
+                    except:
+                        pass
+                    raise e
                 
                 # Extract Metadata
                 try:
@@ -218,6 +234,13 @@ class VideoDownloader:
                     page.wait_for_selector('video', timeout=10000)
                 except:
                     print("No video tag found initially")
+                    # Debug screenshot
+                    screenshot_path = os.path.join(Config.TEMP_DIR, f"error_novideo_{uuid.uuid4()}.png")
+                    try:
+                        page.screenshot(path=screenshot_path)
+                        print(f"📸 Video not found. Screenshot saved to: {screenshot_path}")
+                    except:
+                        pass
 
                 # Strategy 1: Direct video tag
                 videos = page.query_selector_all('video')
