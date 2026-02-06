@@ -14,6 +14,8 @@ except ImportError as e:
     print(f"Error importing modules: {e}")
     sys.exit(1)
 
+
+
 def run_debug_download():
     # Ensure dirs exist
     try:
@@ -21,34 +23,30 @@ def run_debug_download():
     except Exception as e:
         print(f"Warning: Could not ensure directories: {e}")
 
-    # URL from the existing test file
+    # URL to test (Reel is fine, it should return 1 story)
     url = "https://www.instagram.com/reel/DT-zYb6CCjZ/?igsh=YzN4enQ3cXdhMXli"
     
     print("=" * 60)
-    print("Instagram Download Validaton Script")
+    print("Instagram Story/Playlist Fetch Test")
     print("=" * 60)
     print(f"Target URL: {url}")
     print("-" * 60)
-    print("Calling VideoDownloader.download_video(url)...")
+    print("Calling VideoDownloader.fetch_available_stories(url)...")
 
     try:
-        path, metadata = VideoDownloader.download_video(url)
+        stories = VideoDownloader.fetch_available_stories(url)
         print("\n" + "=" * 60)
         print("✅ SUCCESS!")
-        print(f"Video saved to: {path}")
-        if os.path.exists(path):
-            size_mb = os.path.getsize(path) / (1024 * 1024)
-            print(f"File Size: {size_mb:.2f} MB")
-        else:
-            print("WARNING: File path returned but file does not exist!")
-            
-        print("Metadata extracted:")
-        for k, v in metadata.items():
-            print(f"  {k}: {v}")
-            
+        print(f"Found {len(stories)} stories/videos:")
+        
+        for i, story in enumerate(stories):
+            print(f"[{i+1}] {story.get('title')} (ID: {story.get('id')})")
+            print(f"    URL: {story.get('url')}")
+            print(f"    Duration: {story.get('duration')}s")
+
     except Exception as e:
         print("\n" + "=" * 60)
-        print("❌ DOWNLOAD FAILED")
+        print("❌ FETCH FAILED")
         print(f"Error: {e}")
         print("-" * 60)
         print("Traceback:")
@@ -56,3 +54,4 @@ def run_debug_download():
 
 if __name__ == "__main__":
     run_debug_download()
+
