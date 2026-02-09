@@ -35,6 +35,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Install content discovery specific dependencies
+RUN pip install --no-cache-dir instagrapi aiohttp feedparser beautifulsoup4 lxml
+
 # Install Playwright browsers and their system dependencies
 RUN playwright install chromium
 RUN playwright install-deps chromium
@@ -46,6 +49,7 @@ COPY run_all.py .
 # Ensure necessary directories exist for each project
 RUN mkdir -p projects/video_creator/src/temp projects/video_creator/src/output
 RUN mkdir -p projects/instagram_stories/src/temp projects/instagram_stories/src/output
+RUN mkdir -p projects/content_discovery/src/data projects/content_discovery/src/sessions
 
 # Run all automation projects
 CMD ["python", "run_all.py"]
