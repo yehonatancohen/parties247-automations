@@ -12,7 +12,15 @@ sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
 os.environ['PYTHONIOENCODING'] = 'utf-8'
 
-load_dotenv()
+# Load environment variables
+# Try .env.test first (often used in this repo)
+env_test_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), ".env.test")
+if os.path.exists(env_test_path):
+    print(f"Loading config from {env_test_path}")
+    load_dotenv(env_test_path)
+else:
+    # Fallback to standard search
+    load_dotenv()
 
 
 class Config:
@@ -22,10 +30,11 @@ class Config:
     APP_ENV = os.getenv("APP_ENV", "local")
     
     # Telegram
-    if APP_ENV == "production":
-        TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-    else:
-        TELEGRAM_TOKEN = os.getenv("TELEGRAM_INT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
+    # Always try INT token first as it's the intended one for this bot in this context
+    TELEGRAM_TOKEN = os.getenv("TELEGRAM_INT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
+    
+    if not TELEGRAM_TOKEN:
+        print("⚠️ Warning: TELEGRAM_TOKEN/TELEGRAM_INT_TOKEN is missing from environment!")
     
     # Allowed users (comma-separated)
     _raw_allowed_user_ids = os.getenv("ALLOWED_USER_IDS", "")

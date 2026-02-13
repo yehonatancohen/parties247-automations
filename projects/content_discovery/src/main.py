@@ -92,7 +92,23 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-# ... (add_user_command remains here) ...
+async def add_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /add command to monitor new users."""
+    if not is_user_allowed(update.effective_user.id):
+        return
+
+    if not context.args:
+        await update.message.reply_text("Usage: /add <username_or_link>")
+        return
+
+    input_str = context.args[0]
+    await update.message.reply_text(f"🔍 Processing {input_str}...")
+    
+    try:
+        success, msg = await tiktok_scraper.add_monitored_account(input_str)
+        await update.message.reply_text(msg)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {str(e)}")
 
 async def main():
     """Main entry point."""
