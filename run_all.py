@@ -14,6 +14,18 @@ PROJECTS = [
         "path": "projects/video_creator/src",
         "main_module": "main",
         "main_function": "main"
+    },
+    {
+        "name": "content_discovery",
+        "path": "projects/content_discovery/src",
+        "main_module": "main",
+        "main_function": "main"
+    },
+    {
+        "name": "tiktok_trend_hunter",
+        "path": "projects/tiktok_trend_hunter",
+        "main_module": "trend_hunter",
+        "main_function": "run_scheduler"
     }
 ]
 

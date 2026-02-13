@@ -1,3 +1,4 @@
+
 # ========================================
 # Parties247 Automation Suite - Dependencies
 # ========================================
@@ -25,3 +26,7 @@ google-generativeai
 playwright
 flask
 pytesseract
+
+# === TikTok Trend Hunter ===
+TikTokApi
+schedule

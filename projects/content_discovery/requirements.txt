@@ -1,0 +1,12 @@
+# Content Discovery Bot Dependencies
+instagrapi>=2.0.0
+TikTokApi
+playwright>=1.40.0
+python-telegram-bot[job-queue]>=20.0
+python-dotenv
+pytz
+aiohttp
+feedparser
+beautifulsoup4
+lxml
+yt-dlp
