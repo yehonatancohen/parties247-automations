@@ -50,17 +50,68 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ You are not authorized to use this bot.")
         return
     
+    # Check for arguments (e.g. /start <link>)
+    if context.args:
+        link = context.args[0]
+        if 'tiktok.com' in link:
+            await update.message.reply_text("🔗 Processing TikTok link from start command...")
+            success, msg = await tiktok_scraper.add_monitored_account(link)
+            await update.message.reply_text(msg)
+            return
+
     await update.message.reply_text(
         "🎉 *Parties 24/7 Content Discovery Bot*\n\n"
         "I monitor TikTok and Instagram for potential viral party content.\n\n"
         "*Commands:*\n"
         "/scan - Run a content discovery scan now\n"
+        "/add <link/user> - Add a TikTok user to monitor\n"
         "/report - Get the latest discovery report\n"
         "/suggest - Get follow suggestions\n"
         "/status - Check bot status\n\n"
         f"📅 Daily reports are sent at {Config.DAILY_REPORT_HOUR}:00 Israel time.",
         parse_mode="Markdown"
     )
+
+async def add_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /add command to add a monitored user."""
+    if not is_user_allowed(update.effective_user.id):
+        return
+
+    if not context.args:
+        await update.message.reply_text("Usage: /add <username_or_link>")
+        return
+
+    input_str = context.args[0]
+    await update.message.reply_text(f"🔍 Processing {input_str}...")
+    
+    try:
+        success, msg = await tiktok_scraper.add_monitored_account(input_str)
+        await update.message.reply_text(msg)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {str(e)}")
+
+# ... (status_command and other existing commands remain same) ...
+
+async def main():
+    """Main entry point."""
+    print("=" * 60)
+    print("🎉 Parties 24/7 Content Discovery Bot")
+    print("=" * 60)
+    
+    if not Config.TELEGRAM_TOKEN:
+        print("❌ TELEGRAM_TOKEN not set. Exiting.")
+        return
+    
+    # Build application
+    application = Application.builder().token(Config.TELEGRAM_TOKEN).build()
+    
+    # Add handlers
+    application.add_handler(cookie_handler)  # Cookie handler first
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("scan", scan_command))
+    application.add_handler(CommandHandler("add", add_user_command))  # New command
+    application.add_handler(CommandHandler("suggest", suggest_command))
 
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

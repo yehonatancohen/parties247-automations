@@ -8,6 +8,7 @@ import asyncio
 import json
 import os
 import random
+import re
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 
@@ -240,3 +241,72 @@ class TikTokScraper:
         except Exception as e:
             print(f"❌ Failed to update cookies: {e}")
             return False
+
+    async def add_monitored_account(self, input_str: str) -> tuple[bool, str]:
+        """
+        Add a user to the monitored list.
+        Input can be username, profile URL, or video URL.
+        Returns (success, message).
+        """
+        username = await self.extract_username(input_str)
+        if not username:
+             return False, "Could not extract username. Please provide a valid TikTok username or link."
+             
+        # Normalize
+        username = username.lstrip('@')
+        
+        # Load existing
+        accounts_file = os.path.join(Config.DATA_DIR, "monitored_accounts.json")
+        accounts = []
+        if os.path.exists(accounts_file):
+            try:
+                with open(accounts_file, 'r', encoding='utf-8') as f:
+                    accounts = json.load(f)
+            except:
+                accounts = []
+        
+        if username in accounts:
+            return True, f"@{username} is already in the list."
+            
+        accounts.append(username)
+        
+        try:
+            with open(accounts_file, 'w', encoding='utf-8') as f:
+                json.dump(accounts, f, indent=2)
+            print(f"✅ added @{username} to monitored_accounts.json")
+            return True, f"✅ Added @{username} to monitored list."
+        except Exception as e:
+            return False, f"Failed to save file: {e}"
+
+    async def extract_username(self, input_str: str) -> Optional[str]:
+        """Extract username from link or string."""
+        input_str = input_str.strip()
+        
+        # 1. Video Link (resolve uploader)
+        if '/video/' in input_str or 'vm.tiktok.com' in input_str or 'vt.tiktok.com' in input_str:
+             print(f"Resolving uploader for video link: {input_str}...")
+             try:
+                 # Use extract_flat=False to get uploader info, but still fast extraction
+                 opts = {'quiet': True, 'extract_flat': True} 
+                 loop = asyncio.get_event_loop()
+                 info = await loop.run_in_executor(None, lambda: self._fetch_metadata_safe(opts, input_str))
+                 
+                 if info:
+                     # For video links, uploader is often in 'uploader' field
+                     uploader = info.get('uploader') or info.get('uploader_id')
+                     if uploader:
+                         return uploader
+             except Exception as e:
+                 print(f"Error resolving video link: {e}")
+
+        # 2. Profile Link regex
+        # https://www.tiktok.com/@username?params
+        match = re.search(r'tiktok\.com/@([^/?]+)', input_str)
+        if match:
+            return match.group(1)
+
+        # 3. Plain username (if no link indicators)
+        if 'http' not in input_str and 'tiktok.com' not in input_str:
+            return input_str.lstrip('@')
+
+        return None
