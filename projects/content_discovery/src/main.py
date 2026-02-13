@@ -501,8 +501,14 @@ async def send_startup_notification(application):
         f"🕐 Time: {now.strftime('%H:%M %Z')}\n"
         f"📅 Daily report: {Config.DAILY_REPORT_HOUR}:00\n"
         f"📊 Hit threshold: {Config.HIT_THRESHOLD}x baseline\n\n"
-        f"Use /scan to run a discovery scan now.\n"
-        f"Use /update_cookies to update TikTok credentials."
+        "*Available Commands:*\n"
+        "• /help - Show full command list\n"
+        "• /scan - Run manual scan now\n"
+        "• /add <link> - Monitor a new TikTok user\n"
+        "• /report - Get latest report\n"
+        "• /suggest - Get follow suggestions\n"
+        "• /status - Check bot status\n"
+        "• /update_cookies - Update credentials"
     )
     
     for user_id in Config.get_allowed_user_ids():
@@ -516,7 +522,11 @@ async def send_startup_notification(application):
             print(f"Failed to send startup notification to {user_id}: {e}")
 
 
-async def main():
+async def post_init(application: Application):
+    """Post-initialization hook."""
+    await send_startup_notification(application)
+
+def main():
     """Main entry point."""
     print("=" * 60)
     print("🎉 Parties 24/7 Content Discovery Bot")
@@ -527,13 +537,20 @@ async def main():
         return
     
     # Build application
-    application = Application.builder().token(Config.TELEGRAM_TOKEN).build()
+    application = (
+        Application.builder()
+        .token(Config.TELEGRAM_TOKEN)
+        .post_init(post_init)
+        .build()
+    )
     
     # Add handlers
     application.add_handler(cookie_handler)  # Cookie handler first
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("scan", scan_command))
+    application.add_handler(CommandHandler("add", add_user_command))
     application.add_handler(CommandHandler("suggest", suggest_command))
     
     # Schedule daily report
@@ -549,20 +566,16 @@ async def main():
     print(f"📅 Daily report scheduled for {Config.DAILY_REPORT_HOUR}:00 {Config.TIMEZONE}")
     print(f"👥 Allowed users: {Config.get_allowed_user_ids()}")
     
-    # Send startup notification
-    await application.initialize()
-    await send_startup_notification(application)
-    
     # Start polling
     print("✅ Bot is running...")
-    await application.run_polling(allowed_updates=Update.ALL_TYPES)
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
-    if sys.platform == 'win32':
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    
+    # Windows-specific loop policy is handled internally by PTB if needed, 
+    # but we can leave this if strictly necessary. 
+    # Usually standard run_polling handles this fine.
     try:
-        asyncio.run(main())
+        main()
     except KeyboardInterrupt:
         print("\n👋 Bot stopped.")
