@@ -62,35 +62,37 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🎉 *Parties 24/7 Content Discovery Bot*\n\n"
         "I monitor TikTok and Instagram for potential viral party content.\n\n"
-        "*Commands:*\n"
-        "/scan - Run a content discovery scan now\n"
-        "/add <link/user> - Add a TikTok user to monitor\n"
-        "/report - Get the latest discovery report\n"
-        "/suggest - Get follow suggestions\n"
-        "/status - Check bot status\n\n"
+        "*Quick Start:*\n"
+        "• Send me any TikTok link to add the user to my watch list.\n"
+        "• Use /scan to check for new viral videos manually.\n"
+        "• Use /help to see all available commands.\n\n"
         f"📅 Daily reports are sent at {Config.DAILY_REPORT_HOUR}:00 Israel time.",
         parse_mode="Markdown"
     )
 
-async def add_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /add command to add a monitored user."""
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /help command."""
     if not is_user_allowed(update.effective_user.id):
         return
-
-    if not context.args:
-        await update.message.reply_text("Usage: /add <username_or_link>")
-        return
-
-    input_str = context.args[0]
-    await update.message.reply_text(f"🔍 Processing {input_str}...")
     
-    try:
-        success, msg = await tiktok_scraper.add_monitored_account(input_str)
-        await update.message.reply_text(msg)
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {str(e)}")
+    await update.message.reply_text(
+        "📚 *Bot Commands Help*\n\n"
+        "__User Management__\n"
+        "• `/add <link>` - Add a user by TikTok profile or video link.\n"
+        "• `/add <username>` - Add a user by username.\n"
+        "  _Tip: You can also just send /start <link>_\n\n"
+        "__Discovery__\n"
+        "• `/scan` - Run a manual scan of all monitored users immediately.\n"
+        "• `/report` - Show the last generated daily report.\n"
+        "• `/suggest` - Get suggestions for new accounts to follow.\n\n"
+        "__System__\n"
+        "• `/status` - Check bot status and configuration.\n"
+        "• `/update_cookies` - Update TikTok session cookies if scraping fails.\n"
+        "• `/help` - Show this help message.",
+        parse_mode="Markdown"
+    )
 
-# ... (status_command and other existing commands remain same) ...
+# ... (add_user_command remains here) ...
 
 async def main():
     """Main entry point."""
@@ -108,9 +110,10 @@ async def main():
     # Add handlers
     application.add_handler(cookie_handler)  # Cookie handler first
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command)) # New command
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("scan", scan_command))
-    application.add_handler(CommandHandler("add", add_user_command))  # New command
+    application.add_handler(CommandHandler("add", add_user_command))
     application.add_handler(CommandHandler("suggest", suggest_command))
 
 
@@ -349,10 +352,15 @@ def format_report_message(report: DailyReport) -> str:
 
 async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /scan command - run immediate scan."""
-    if not is_user_allowed(update.effective_user.id):
+    user_id = update.effective_user.id
+    print(f"Received /scan command from user {user_id}")
+    
+    if not is_user_allowed(user_id):
+        await update.message.reply_text("⛔ Access Denied: Your User ID is not in the allowed list.")
+        print(f"❌ User {user_id} denied access.")
         return
     
-    await update.message.reply_text("🔍 Starting content discovery scan... This may take a few minutes.")
+    status_msg = await update.message.reply_text("🔍 Starting content discovery scan... This may take a few minutes.")
     
     try:
         report = await run_discovery_scan()
@@ -365,8 +373,11 @@ async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(message, parse_mode="Markdown", disable_web_page_preview=True)
             
+        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=status_msg.message_id)
+
     except Exception as e:
         await update.message.reply_text(f"❌ Scan failed: {str(e)}")
+        print(f"❌ Scan Exception: {e}")
 
 
 async def suggest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
