@@ -46,89 +46,107 @@ class TikTokScraper:
         hours = hours or Config.VIDEO_AGE_HOURS
         videos = []
         
-        try:
-            url = f"https://www.tiktok.com/@{username}"
-            
-            # Run yt-dlp in a thread to avoid blocking asyncio loop
-            loop = asyncio.get_event_loop()
-            info = await loop.run_in_executor(None, self._fetch_metadata, url, count)
-            
-            if not info or 'entries' not in info:
-                # Fallback: try feed URL
-                return []
+        # Prepare URL and options
+        url = f"https://www.tiktok.com/@{username}"
+        opts = self.ydl_opts.copy()
+        opts.update({
+             'playlistend': count,
+             'socket_timeout': 10,
+             'retries': 3,
+        })
 
-            entries = info['entries']
-            cutoff_time = datetime.now() - timedelta(hours=hours)
-            
-            for entry in entries:
-                if not entry:
-                    continue
-                    
-                # yt-dlp returns inconsistent date formats, handle gracefully
-                upload_date = entry.get('upload_date')
-                timestamp = entry.get('timestamp')
-                posted_at = datetime.now()
-                
-                if timestamp:
-                    posted_at = datetime.fromtimestamp(timestamp)
-                elif upload_date:
-                    try:
-                        posted_at = datetime.strptime(upload_date, '%Y%m%d')
-                    except:
-                        pass
-                
-                # Filter by age
-                if posted_at < cutoff_time:
-                    continue
-                
-                video = VideoCandidate(
-                    platform="tiktok",
-                    video_url=entry.get('webpage_url') or entry.get('url'),
-                    thumbnail_url=entry.get('thumbnail'),
-                    author_username=entry.get('uploader') or username,
-                    author_display_name=entry.get('uploader') or username,
-                    author_followers=0,  # yt-dlp might not provide this
-                    posted_at=posted_at,
-                    views=entry.get('view_count', 0),
-                    likes=entry.get('like_count', 0),
-                    comments=entry.get('comment_count', 0),
-                    shares=entry.get('repost_count', 0),
-                    caption=entry.get('description', '') or entry.get('title', ''),
-                    hashtags=entry.get('tags', [])
-                )
-                
-                # yt-dlp returns None for 0 sometimes
-                video.views = video.views or 0
-                video.likes = video.likes or 0
-                video.comments = video.comments or 0
-                video.shares = video.shares or 0
-                
-                videos.append(video)
-                
-                if len(videos) >= count:
+        # Retry logic for robustness
+        info = None
+        for attempt in range(2):
+            try:
+                loop = asyncio.get_event_loop()
+                info = await loop.run_in_executor(None, lambda: self._fetch_metadata_safe(opts, url))
+                if info and 'entries' in info:
                     break
-            
-            print(f"📹 TikTok (yt-dlp): Found {len(videos)} recent videos from @{username}")
-            return videos
-            
-        except Exception as e:
-            print(f"❌ Error fetching videos from @{username}: {e}")
+            except Exception as e:
+                print(f"⚠️ Retry {attempt+1} for @{username}: {e}")
+                await asyncio.sleep(2)
+        
+        if not info or 'entries' not in info:
             return []
 
+        entries = info['entries']
+        cutoff_time = datetime.now() - timedelta(hours=hours)
+        
+        for entry in entries:
+            if not entry:
+                continue
+                
+            # yt-dlp returns inconsistent date formats, handle gracefully
+            upload_date = entry.get('upload_date')
+            timestamp = entry.get('timestamp')
+            posted_at = datetime.now()
+            
+            if timestamp:
+                posted_at = datetime.fromtimestamp(timestamp)
+            elif upload_date:
+                try:
+                    posted_at = datetime.strptime(upload_date, '%Y%m%d')
+                except:
+                    pass
+            
+            # Filter by age
+            if posted_at < cutoff_time:
+                continue
+            
+            video = VideoCandidate(
+                platform="tiktok",
+                video_url=entry.get('webpage_url') or entry.get('webpage_url_basename'), # fallback
+                thumbnail_url=entry.get('thumbnail'),
+                author_username=entry.get('uploader') or username,
+                author_display_name=entry.get('uploader') or username,
+                author_followers=0,  # yt-dlp might not provide this
+                posted_at=posted_at,
+                views=entry.get('view_count', 0),
+                likes=entry.get('like_count', 0),
+                comments=entry.get('comment_count', 0),
+                shares=entry.get('repost_count', 0),
+                caption=entry.get('description', '') or entry.get('title', ''),
+                hashtags=entry.get('tags', [])
+            )
+            
+            # yt-dlp return validation
+            video.video_url = video.video_url or f"https://www.tiktok.com/@{username}/video/{entry.get('id')}"
+            video.views = video.views or 0
+            video.likes = video.likes or 0
+            video.comments = video.comments or 0
+            video.shares = video.shares or 0
+            
+            videos.append(video)
+            
+            if len(videos) >= count:
+                break
+        
+        if videos:
+             print(f"📹 TikTok: Found {len(videos)} new from @{username}")
+        return videos
+
+    def _fetch_metadata_safe(self, opts, url):
+        """Helper to run yt-dlp extraction safely."""
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                return ydl.extract_info(url, download=False)
+        except Exception:
+            return None
+
     def _fetch_metadata(self, url: str, max_items: int) -> Dict:
-        """Helper to run yt-dlp extraction."""
+        """Deprecated helper, kept for compatibility."""
         opts = self.ydl_opts.copy()
         opts['playlistend'] = max_items
-        
         with yt_dlp.YoutubeDL(opts) as ydl:
             return ydl.extract_info(url, download=False)
     
     async def scan_following_for_videos(
         self,
-        max_accounts: int = 10
+        max_accounts: int = 1500
     ) -> List[VideoCandidate]:
         """
-        Scan explicit accounts list since following feed is blocked.
+        Scan monitored accounts list in parallel.
         """
         # Load monitored accounts from a file
         accounts_file = os.path.join(Config.DATA_DIR, "monitored_accounts.json")
@@ -136,22 +154,55 @@ class TikTokScraper:
         
         if os.path.exists(accounts_file):
             try:
-                with open(accounts_file, 'r') as f:
+                with open(accounts_file, 'r', encoding='utf-8') as f:
                     accounts = json.load(f)
             except:
                 accounts = []
         
-        # Default accounts if none configured
+        # Fallback if empty
         if not accounts:
-            accounts = ["infected_mushroom", "astikiofficial", "djborisofficial"]
+             # Try users.txt from trend_hunter if it exists
+             users_txt = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(Config.BASE_DIR))), "tiktok_trend_hunter", "users.txt")
+             if os.path.exists(users_txt):
+                 with open(users_txt, 'r', encoding='utf-8') as f:
+                     accounts = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+             else:
+                 accounts = ["infected_mushroom", "astikiofficial"]
             
-        print(f"📋 Scanning {len(accounts)} monitored accounts...")
+        print(f"📋 Scanning {len(accounts)} monitored accounts in parallel (5 workers)...")
         
         all_videos = []
-        for username in accounts[:max_accounts]:
-            videos = await self.get_user_videos(username, count=5)
-            all_videos.extend(videos)
-            await asyncio.sleep(2)
+        
+        # Helper for thread execution
+        def fetch_worker(username):
+            # We need a new event loop for async in thread, or just run synchronous yt-dlp here?
+            # Actually, get_user_videos is async. ThreadPoolExecutor runs sync functions.
+            # We can't easily run async function in ThreadPool.
+            # However, since yt-dlp is blocking anyway, we can just call the synchronous logic directly!
+            
+            # But get_user_videos uses loop.run_in_executor. 
+            # It's better to use asyncio.gather for async functions!
+            pass 
+
+        # Using asyncio.gather with a semaphore to limit concurrency is better than ThreadPool for async functions
+        semaphore = asyncio.Semaphore(5)
+        
+        async def protected_fetch(username):
+            async with semaphore:
+                await asyncio.sleep(random.uniform(1.0, 3.0)) # Random jitter
+                try:
+                    return await self.get_user_videos(username, count=8)
+                except Exception as e:
+                    print(f"Error scanning {username}: {e}")
+                    return []
+
+        # Create tasks
+        tasks = [protected_fetch(user) for user in accounts[:max_accounts]]
+        results = await asyncio.gather(*tasks)
+        
+        for res in results:
+            if res:
+                all_videos.extend(res)
             
         return all_videos
 

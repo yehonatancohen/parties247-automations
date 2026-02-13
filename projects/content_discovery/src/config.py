@@ -53,7 +53,7 @@ class Config:
     
     # Engagement thresholds
     HIT_THRESHOLD = float(os.getenv("HIT_THRESHOLD", "1.5"))  # 1.5x baseline = potential hit
-    VIDEO_AGE_HOURS = int(os.getenv("VIDEO_AGE_HOURS", "24"))  # Check videos from last 24h
+    VIDEO_AGE_HOURS = int(os.getenv("VIDEO_AGE_HOURS", "48"))  # Check videos from last 24h
     BASELINE_POSTS_COUNT = int(os.getenv("BASELINE_POSTS_COUNT", "20"))  # Posts to calculate baseline
     
     # Paths
