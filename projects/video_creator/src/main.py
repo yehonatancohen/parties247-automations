@@ -40,6 +40,18 @@ except ImportError as e:
     print(f"⚠️ Could not load Instagram Stories Bot: {e}")
     STORIES_BOT_AVAILABLE = False
 
+# Import Content Discovery Bot
+cd_src = os.path.abspath(os.path.join(current_dir, "../../content_discovery/src"))
+if cd_src not in sys.path:
+    sys.path.append(cd_src)
+
+try:
+    from main import setup_content_discovery
+    CONTENT_DISCOVERY_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ Could not load Content Discovery Module: {e}")
+    CONTENT_DISCOVERY_AVAILABLE = False
+
 # Initialize Services
 graphics_engine = GraphicsEngine()
 ai_generator = AIGenerator()
@@ -376,6 +388,10 @@ async def send_startup_notification(application):
         r"*פקודות זמינות:*" + "\n"
         r"• /start - ליצור סרטון חדש" + "\n"
         r"• /story - תזמון סטורי לאינסטגרם" + "\n"
+        r"• /scan - סריקת תוכן ויראלי" + "\n"
+        r"• /add - הוספת משתמש TikTok למעקב" + "\n"
+        r"• /suggest - המלצות לעוקבים חדשים" + "\n"
+        r"• /cd_help - עזרה לגילוי תוכן" + "\n"
         r"• /cancel - ביטול פעולה נוכחית"
     )
     
@@ -438,6 +454,13 @@ async def main():
             await setup_stories_bot(application)
         except Exception as e:
             print(f"❌ Failed to setup Instagram Stories Bot: {e}")
+
+    # Setup Content Discovery Module (if available)
+    if CONTENT_DISCOVERY_AVAILABLE:
+        try:
+            await setup_content_discovery(application)
+        except Exception as e:
+            print(f"❌ Failed to setup Content Discovery Module: {e}")
 
     await send_startup_notification(application)
     

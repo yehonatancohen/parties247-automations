@@ -15,12 +15,7 @@ PROJECTS = [
         "main_module": "main",
         "main_function": "main"
     },
-    {
-        "name": "content_discovery",
-        "path": "projects/content_discovery/src",
-        "main_module": "main",
-        "main_function": "main"
-    },
+    # content_discovery is now integrated into parties247_bot (no separate process needed)
     {
         "name": "tiktok_trend_hunter",
         "path": "projects/tiktok_trend_hunter",
