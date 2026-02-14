@@ -15,13 +15,7 @@ PROJECTS = [
         "main_module": "main",
         "main_function": "main"
     },
-    # content_discovery is now integrated into parties247_bot (no separate process needed)
-    {
-        "name": "tiktok_trend_hunter",
-        "path": "projects/tiktok_trend_hunter",
-        "main_module": "trend_hunter",
-        "main_function": "run_scheduler"
-    }
+    # content_discovery + tiktok_trend_hunter are now merged into parties247_bot via trend_scanner.py
 ]
 
 

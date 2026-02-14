@@ -40,17 +40,13 @@ except ImportError as e:
     print(f"⚠️ Could not load Instagram Stories Bot: {e}")
     STORIES_BOT_AVAILABLE = False
 
-# Import Content Discovery Bot
-cd_src = os.path.abspath(os.path.join(current_dir, "../../content_discovery/src"))
-if cd_src not in sys.path:
-    sys.path.append(cd_src)
-
+# Import Trend Scanner (merged content discovery + trend hunter)
 try:
-    from main import setup_content_discovery
-    CONTENT_DISCOVERY_AVAILABLE = True
+    from trend_scanner import setup_trend_scanner
+    TREND_SCANNER_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ Could not load Content Discovery Module: {e}")
-    CONTENT_DISCOVERY_AVAILABLE = False
+    print(f"⚠️ Could not load Trend Scanner: {e}")
+    TREND_SCANNER_AVAILABLE = False
 
 # Initialize Services
 graphics_engine = GraphicsEngine()
@@ -388,10 +384,11 @@ async def send_startup_notification(application):
         r"*פקודות זמינות:*" + "\n"
         r"• /start - ליצור סרטון חדש" + "\n"
         r"• /story - תזמון סטורי לאינסטגרם" + "\n"
-        r"• /scan - סריקת תוכן ויראלי" + "\n"
+        r"• /scan - סריקת טרנדים" + "\n"
         r"• /add - הוספת משתמש TikTok למעקב" + "\n"
-        r"• /suggest - המלצות לעוקבים חדשים" + "\n"
-        r"• /cd_help - עזרה לגילוי תוכן" + "\n"
+        r"• /remove - הסרת משתמש מהמעקב" + "\n"
+        r"• /watchlist - רשימת המעקב" + "\n"
+        r"• /trendshelp - עזרה" + "\n"
         r"• /cancel - ביטול פעולה נוכחית"
     )
     
@@ -405,6 +402,12 @@ async def send_startup_notification(application):
             print(f"✅ Startup notification sent to user {user_id}")
         except Exception as e:
             print(f"⚠️ Failed to send startup notification to {user_id}: {e}")
+            # Try sending without markdown as fallback
+            try:
+                await application.bot.send_message(chat_id=user_id, text=message)
+                print(f"✅ Startup notification sent (raw fallback) to {user_id}")
+            except:
+                pass
 
 
 
@@ -455,12 +458,12 @@ async def main():
         except Exception as e:
             print(f"❌ Failed to setup Instagram Stories Bot: {e}")
 
-    # Setup Content Discovery Module (if available)
-    if CONTENT_DISCOVERY_AVAILABLE:
+    # Setup Trend Scanner (merged content discovery + trend hunter)
+    if TREND_SCANNER_AVAILABLE:
         try:
-            await setup_content_discovery(application)
+            await setup_trend_scanner(application)
         except Exception as e:
-            print(f"❌ Failed to setup Content Discovery Module: {e}")
+            print(f"❌ Failed to setup Trend Scanner: {e}")
 
     await send_startup_notification(application)
     

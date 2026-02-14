@@ -7,7 +7,14 @@ sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
 os.environ['PYTHONIOENCODING'] = 'utf-8'
 
-load_dotenv()
+# Load environment variables
+# Try .env.test first
+env_test_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), ".env.test")
+if os.path.exists(env_test_path):
+    print(f"Loading config from {env_test_path}")
+    load_dotenv(env_test_path)
+else:
+    load_dotenv()
 
 class Config:
     # Environment
