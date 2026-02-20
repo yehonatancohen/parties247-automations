@@ -27,9 +27,11 @@ Commands:
 
 import os
 import sys
+import re
 import json
 import random
 import logging
+import statistics
 import concurrent.futures
 from datetime import datetime, timedelta, time, timezone
 
@@ -70,6 +72,16 @@ MIN_RELEVANCE_SCORE = 2.0
 WEIGHT_RELEVANCE = 0.50
 WEIGHT_CATCHINESS = 0.30
 WEIGHT_QUALITY = 0.20
+
+# Short / ambiguous keywords that need whole-word matching to avoid false positives.
+# e.g. "id" in "video", "set" in "assets", "live" in "deliver", "mix" in "remix".
+# All other (longer / multi-word) keywords are distinctive enough for substring matching.
+WORD_BOUNDARY_KEYWORDS = {
+    "dj", "id", "set", "mix", "live", "drop", "bass", "edm", "b2b", "tlv",
+}
+
+# Path for storing seen video IDs to avoid re-recommending across scans
+SEEN_VIDEOS_FILE = os.path.join(_this_dir, "seen_videos.json")
 
 
 # ============================================================
@@ -216,6 +228,39 @@ TOP_TIER_FESTIVALS = {
 
 
 # ============================================================
+# SEEN-VIDEO PERSISTENCE
+# ============================================================
+
+SEEN_VIDEO_TTL_DAYS = 7
+
+
+def load_seen_videos() -> dict:
+    """Load the seen-video registry. Returns {video_id: iso_date_str}."""
+    if not os.path.exists(SEEN_VIDEOS_FILE):
+        return {}
+    try:
+        with open(SEEN_VIDEOS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_seen_videos(seen: dict):
+    """Persist the seen-video registry, pruning entries older than TTL."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=SEEN_VIDEO_TTL_DAYS)
+    pruned = {
+        vid: ts
+        for vid, ts in seen.items()
+        if datetime.fromisoformat(ts) > cutoff
+    }
+    try:
+        with open(SEEN_VIDEOS_FILE, "w", encoding="utf-8") as f:
+            json.dump(pruned, f)
+    except Exception as e:
+        logger.warning(f"Could not save seen_videos: {e}")
+
+
+# ============================================================
 # USER LIST MANAGEMENT
 # ============================================================
 
@@ -306,9 +351,16 @@ def score_relevance(video: dict, username: str) -> tuple:
     
     # 1. Keyword matching
     for keyword, weight in RELEVANCE_KEYWORDS.items():
-        if keyword in all_text:
-            score += weight
-            matched.append(keyword)
+        if keyword in WORD_BOUNDARY_KEYWORDS:
+            # Ambiguous short keywords: require whole-word match to avoid false positives
+            # e.g. "id" in "video", "set" in "assets", "live" in "deliver"
+            if re.search(r'\b' + re.escape(keyword) + r'\b', all_text):
+                score += weight
+                matched.append(keyword)
+        else:
+            if keyword in all_text:
+                score += weight
+                matched.append(keyword)
     
     # 2. Israeli connection detection
     # Check if the username is an Israeli artist
@@ -329,7 +381,7 @@ def score_relevance(video: dict, username: str) -> tuple:
                 matched.append(f"🇮🇱 {kw}")
                 break
     
-    # Check hashtags for Israeli connection
+    # Check hashtags for Israeli connection and artist names
     hashtags = video.get('tags', []) or []
     hashtag_text = ""
     if isinstance(hashtags, list):
@@ -341,7 +393,15 @@ def score_relevance(video: dict, username: str) -> tuple:
                     score += 1.5
                     matched.append(f"🇮🇱#{kw}")
                     break
-    
+        # Also check hashtags for Israeli artist names (e.g. #borgore, #infectedmushroom)
+        if not is_israeli:
+            for artist_name in ISRAELI_ARTISTS:
+                if artist_name.replace(" ", "") in hashtag_text or artist_name in hashtag_text:
+                    is_israeli = True
+                    score += 2.5
+                    matched.append(f"🇮🇱 {artist_name}")
+                    break
+
     # 3. Top-tier international detection (can pass without Israeli connection)
     if not is_israeli:
         for artist_name in TOP_TIER_INTERNATIONAL:
@@ -350,6 +410,14 @@ def score_relevance(video: dict, username: str) -> tuple:
                 score += 2.5
                 matched.append(f"🌍 {artist_name}")
                 break
+        # Also check hashtags for top-tier international artists
+        if not is_top_tier and hashtag_text:
+            for artist_name in TOP_TIER_INTERNATIONAL:
+                if artist_name.replace(" ", "") in hashtag_text or artist_name in hashtag_text:
+                    is_top_tier = True
+                    score += 2.0
+                    matched.append(f"🌍 {artist_name}")
+                    break
         
         if not is_top_tier:
             for fest in TOP_TIER_FESTIVALS:
@@ -770,7 +838,8 @@ def process_user_phase1(username: str, cutoff_time) -> list:
     if not new_videos:
         return []
     
-    avg_baseline = sum(old_engagements) / len(old_engagements) if old_engagements else 0.01
+    # Use median instead of mean so a single viral outlier doesn't skew the baseline
+    avg_baseline = statistics.median(old_engagements) if old_engagements else 0.01
     scored = []
     
     for v in new_videos:
@@ -785,30 +854,57 @@ def process_user_phase1(username: str, cutoff_time) -> list:
         catch_score, catch_details = score_catchiness(v, avg_baseline, v.get('_upload_time'))
         
         # ====== ISRAELI PRIORITY GATE ======
-        # Israeli content always passes.
-        # Non-Israeli content is BLOCKED unless:
-        #   - It's exceptionally viral (catchiness >= 7)
-        #   - OR it involves a top-tier international artist/festival
-        if not is_israeli:
-            if not is_top_tier and catch_score < 7.0:
-                # Not Israeli, not top-tier, not viral → skip
-                continue
-        
-        # Israeli content gets a final score boost
-        israeli_bonus = 1.5 if is_israeli else 0.0
-        
-        # Phase 1 score (no quality yet, assume average quality = 5)
+        # Israeli and top-tier content always passes.
+        # Other content gets a score penalty (0.6×) instead of a hard block so
+        # truly exceptional viral content can still surface, while Israeli/top-tier
+        # content naturally ranks higher in the final list.
+        if not is_israeli and not is_top_tier and catch_score < 5.0:
+            # Very low catchiness AND not Israeli/top-tier → still skip (clear noise)
+            continue
+
+        # Israeli content gets a final score boost; non-Israeli/non-top-tier gets penalised
+        if is_israeli:
+            israeli_bonus = 1.5
+            non_israeli_penalty = 1.0
+        elif is_top_tier:
+            israeli_bonus = 0.0
+            non_israeli_penalty = 1.0
+        else:
+            israeli_bonus = 0.0
+            non_israeli_penalty = 0.6  # Score multiplier for unrelated content
+
+        # Lightweight quality pre-score using fields available in flat mode.
+        # Duration is always present; description length is also available.
+        # This replaces the flat 5.0 placeholder so Phase 1 ranking is more accurate.
+        duration = v.get('duration') or 0
+        desc_len = len((v.get('description', '') or '').strip())
+        quick_quality = 0.0
+        if 15 <= duration <= 90:
+            quick_quality += 5.0   # TikTok sweet spot → roughly 5/10
+        elif 10 <= duration <= 180:
+            quick_quality += 3.5
+        elif 5 <= duration <= 300:
+            quick_quality += 2.0
+        # else: very short / very long → 0
+        if desc_len >= 50:
+            quick_quality = min(quick_quality + 2.0, 10.0)
+        elif desc_len >= 10:
+            quick_quality = min(quick_quality + 1.0, 10.0)
+
+        # Phase 1 score using quick quality estimate
         phase1_score = (
-            rel_score * WEIGHT_RELEVANCE +
-            catch_score * WEIGHT_CATCHINESS +
-            5.0 * WEIGHT_QUALITY +
+            (
+                rel_score * WEIGHT_RELEVANCE +
+                catch_score * WEIGHT_CATCHINESS +
+                quick_quality * WEIGHT_QUALITY
+            ) * non_israeli_penalty +
             israeli_bonus
         )
-        
+
         v['username'] = username
         v['relevance_score'] = rel_score
         v['catchiness_score'] = catch_score
-        v['quality_score'] = 5.0  # Placeholder until Phase 2
+        v['quality_score'] = quick_quality  # Updated by Phase 2 with real resolution data
         v['category'] = category
         v['is_israeli'] = is_israeli
         v['is_top_tier'] = is_top_tier
@@ -851,13 +947,23 @@ def deep_scan_phase2(candidates: list, limit: int = 15) -> list:
                 v['quality_score'] = qual_score
                 v['quality_details'] = qual_details
                 
-                # Recalculate final score with real quality
-                israeli_bonus = 1.5 if v.get('is_israeli') else 0.0
+                # Recalculate final score with real quality, preserving Israeli/penalty logic
+                if v.get('is_israeli'):
+                    p2_bonus = 1.5
+                    p2_penalty = 1.0
+                elif v.get('is_top_tier'):
+                    p2_bonus = 0.0
+                    p2_penalty = 1.0
+                else:
+                    p2_bonus = 0.0
+                    p2_penalty = 0.6
                 v['final_score'] = (
-                    v['relevance_score'] * WEIGHT_RELEVANCE +
-                    v['catchiness_score'] * WEIGHT_CATCHINESS +
-                    qual_score * WEIGHT_QUALITY +
-                    israeli_bonus
+                    (
+                        v['relevance_score'] * WEIGHT_RELEVANCE +
+                        v['catchiness_score'] * WEIGHT_CATCHINESS +
+                        qual_score * WEIGHT_QUALITY
+                    ) * p2_penalty +
+                    p2_bonus
                 )
         except Exception as e:
             logger.error(f"Phase 2 error for {video_url}: {e}")
@@ -877,13 +983,16 @@ def run_full_scan() -> list:
     users = get_target_users()
     if not users:
         return []
-    
+
+    # Load previously seen video IDs to avoid re-recommending
+    seen_videos = load_seen_videos()
+
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     all_candidates = []
-    
+
     # ===== Phase 1: Fast parallel scan =====
     logger.info(f"Phase 1: Scanning {len(users)} users...")
-    
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         futures = {executor.submit(process_user_phase1, user, cutoff): user for user in users}
         for future in concurrent.futures.as_completed(futures):
@@ -895,26 +1004,45 @@ def run_full_scan() -> list:
                     logger.info(f"  {user}: {len(candidates)} relevant videos")
             except Exception as exc:
                 logger.error(f"  {user}: error - {exc}")
-    
+
     if not all_candidates:
         logger.info("Phase 1: No relevant videos found.")
         return []
-    
+
+    # Filter out videos already sent in a previous scan
+    before_dedup = len(all_candidates)
+    all_candidates = [v for v in all_candidates if str(v.get('id', '')) not in seen_videos]
+    skipped = before_dedup - len(all_candidates)
+    if skipped:
+        logger.info(f"Seen-video filter: skipped {skipped} already-reported videos")
+
+    if not all_candidates:
+        logger.info("Phase 1: All candidates already reported recently.")
+        return []
+
     # Sort by Phase 1 score
     all_candidates.sort(key=lambda x: x.get('final_score', 0), reverse=True)
     logger.info(f"Phase 1 complete: {len(all_candidates)} candidates found")
-    
+
     # ===== Phase 2: Deep scan top 15 =====
     top_candidates = deep_scan_phase2(all_candidates, limit=15)
     logger.info(f"Phase 2 complete: {len(top_candidates)} videos quality-checked")
-    
+
     # ===== Phase 3: AI classification of top 3 =====
     if len(top_candidates) >= 1:
         top_candidates = classify_with_ai(top_candidates)
         # Re-sort after AI adjustment
         top_candidates.sort(key=lambda x: x.get('final_score', 0), reverse=True)
         logger.info("Phase 3 complete: AI classification done")
-    
+
+    # Record reported videos so they won't be re-sent in subsequent scans
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for v in top_candidates:
+        vid_id = str(v.get('id', ''))
+        if vid_id:
+            seen_videos[vid_id] = now_iso
+    save_seen_videos(seen_videos)
+
     return top_candidates
 
 
