@@ -8,20 +8,30 @@ sys.stderr.reconfigure(encoding='utf-8')
 os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 # Load environment variables
-# Try .env.test first
-env_test_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), ".env.test")
+# Try .env.test first, then .env
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# 1: src, 2: video_creator, 3: projects, 4: root
+root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+env_test_path = os.path.join(root_dir, ".env.test")
+env_path = os.path.join(root_dir, ".env")
+
 if os.path.exists(env_test_path):
-    print(f"Loading config from {env_test_path}")
+    print(f"[CONFIG] Loading config from {env_test_path}")
     load_dotenv(env_test_path)
+elif os.path.exists(env_path):
+    print(f"[CONFIG] Loading config from {env_path}")
+    load_dotenv(env_path)
 else:
+    print(f"[CONFIG] No .env or .env.test found at {root_dir}. Relying on system environment variables.")
     load_dotenv()
 
 # DEBUG: Print environment status (secrets masked)
-print(f"DEBUG: TELEGRAM_TOKEN found: {'YES' if os.getenv('TELEGRAM_TOKEN') else 'NO'}")
-print(f"DEBUG: TELEGRAM_INT_TOKEN found: {'YES' if os.getenv('TELEGRAM_INT_TOKEN') else 'NO'}")
-print(f"DEBUG: GEMINI_API_KEY found: {'YES' if os.getenv('GEMINI_API_KEY') else 'NO'}")
+print(f"[CONFIG] TELEGRAM_TOKEN found: {'YES' if os.getenv('TELEGRAM_TOKEN') else 'NO'}")
+print(f"[CONFIG] TELEGRAM_INT_TOKEN found: {'YES' if os.getenv('TELEGRAM_INT_TOKEN') else 'NO'}")
+print(f"[CONFIG] GEMINI_API_KEY found: {'YES' if os.getenv('GEMINI_API_KEY') else 'NO'}")
 if os.getenv('TELEGRAM_TOKEN'):
-    print(f"DEBUG: TELEGRAM_TOKEN snippet: {os.getenv('TELEGRAM_TOKEN')[:5]}...")
+    token = os.getenv('TELEGRAM_TOKEN')
+    print(f"[CONFIG] TELEGRAM_TOKEN snippet: {token[:5]}...{token[-5:]}")
 
 class Config:
     # Environment
@@ -29,6 +39,8 @@ class Config:
 
     # Telegram
     TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("TELEGRAM_INT_TOKEN")
+    if not TELEGRAM_TOKEN:
+        print("[CONFIG] CRITICAL: TELEGRAM_TOKEN is missing!")
 
     # Single allowed user (for backward compatibility)
     _raw_allowed_user_id = os.getenv("ALLOWED_USER_ID")

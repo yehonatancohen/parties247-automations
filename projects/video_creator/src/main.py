@@ -426,6 +426,11 @@ async def main():
     
     print("🤖 Bot is starting...")
     
+    if not Config.TELEGRAM_TOKEN:
+        print("❌ CRITICAL ERROR: TELEGRAM_TOKEN is not set in environment or config files!")
+        print("Please check your .env or .env.test file, or set the TELEGRAM_TOKEN environment variable.")
+        return
+
     trequest = HTTPXRequest(connection_pool_size=8, read_timeout=300, write_timeout=300, connect_timeout=60)
     
     application = ApplicationBuilder().token(Config.TELEGRAM_TOKEN).request(trequest).build()
