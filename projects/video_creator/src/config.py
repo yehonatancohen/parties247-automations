@@ -16,6 +16,13 @@ if os.path.exists(env_test_path):
 else:
     load_dotenv()
 
+# DEBUG: Print environment status (secrets masked)
+print(f"DEBUG: TELEGRAM_TOKEN found: {'YES' if os.getenv('TELEGRAM_TOKEN') else 'NO'}")
+print(f"DEBUG: TELEGRAM_INT_TOKEN found: {'YES' if os.getenv('TELEGRAM_INT_TOKEN') else 'NO'}")
+print(f"DEBUG: GEMINI_API_KEY found: {'YES' if os.getenv('GEMINI_API_KEY') else 'NO'}")
+if os.getenv('TELEGRAM_TOKEN'):
+    print(f"DEBUG: TELEGRAM_TOKEN snippet: {os.getenv('TELEGRAM_TOKEN')[:5]}...")
+
 class Config:
     # Environment
     APP_ENV = os.getenv("APP_ENV", "local")

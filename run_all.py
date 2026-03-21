@@ -41,6 +41,7 @@ async def run_project_process(project: dict):
                 sys.executable, 
                 main_file,
                 cwd=project_cwd,
+                env=os.environ,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
