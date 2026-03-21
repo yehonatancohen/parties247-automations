@@ -21,10 +21,7 @@ class Config:
     APP_ENV = os.getenv("APP_ENV", "local")
 
     # Telegram
-    if APP_ENV == "production":
-        TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-    else:
-        TELEGRAM_TOKEN = os.getenv("TELEGRAM_INT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
+    TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("TELEGRAM_INT_TOKEN")
 
     # Single allowed user (for backward compatibility)
     _raw_allowed_user_id = os.getenv("ALLOWED_USER_ID")

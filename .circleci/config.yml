@@ -37,9 +37,9 @@ jobs:
             
             docker buildx build \
               --platform linux/arm64 \
-              --build-arg TELEGRAM_INT_TOKEN="$TELEGRAM_INT_TOKEN" \
+              --build-arg TELEGRAM_TOKEN="$TELEGRAM_TOKEN" \
               --build-arg ALLOWED_USER_ID="$ALLOWED_USER_ID" \
-              --build-arg OPENAI_API_KEY="$OPENAI_API_KEY" \
+              --build-arg GEMINI_API_KEY="$GEMINI_API_KEY" \
               --build-arg FONT_PATH="$FONT_PATH" \
               --build-arg TIKTOK_USERNAME="$TIKTOK_USERNAME" \
               --build-arg TIKTOK_PASSWORD="$TIKTOK_PASSWORD" \
