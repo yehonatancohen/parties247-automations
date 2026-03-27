@@ -60,7 +60,7 @@ if not os.path.exists(USERS_FILE):
         with open(USERS_FILE, "w", encoding="utf-8") as f:
             f.write("# TikTok usernames to monitor (one per line)\n")
 
-VIDEO_FETCH_LIMIT = 30
+VIDEO_FETCH_LIMIT = 50
 SCAN_HOUR = 7
 SCAN_MINUTE = 30
 TIMEZONE = "Asia/Jerusalem"
@@ -90,6 +90,17 @@ SEEN_VIDEOS_FILE = os.path.join(_this_dir, "seen_videos.json")
 
 # Each keyword has a weight. Multiple matches stack (capped at 10).
 RELEVANCE_KEYWORDS = {
+    # Live performance (highest signal for this page)
+    "live set": 4.0,
+    "full set": 3.5,
+    "b2b set": 4.0,
+    "סט לייב": 4.0,
+    "סט שלם": 3.5,
+    "סט מלא": 3.5,
+    "recorded live": 2.5,
+    "live at": 2.5,
+    "playing live": 2.5,
+
     # DJ mentions (high signal)
     "dj": 2.5,
     "דיג'יי": 2.5,
@@ -447,26 +458,31 @@ def _classify_category(text: str, matched_keywords: list) -> str:
     """Classify the video into a content category based on matched keywords."""
     matched_set = set(k.lower().lstrip("#🎤 ") for k in matched_keywords)
     
+    # Check for live set (highest priority — best content for this page)
+    live_set_keywords = {"live set", "full set", "b2b set", "סט לייב", "סט שלם", "סט מלא", "recorded live"}
+    if live_set_keywords & matched_set:
+        return "🎤 Live Set"
+
     # Check for Israeli pride content
     israeli_keywords = {"ישראלי", "israeli", "גאווה", "pride", "represent", "ישראל", "israel"}
     festival_keywords = {"festival", "פסטיבל", "tomorrowland", "ultra", "edc", "awakenings", "sonar", "time warp"}
     if israeli_keywords & matched_set and festival_keywords & matched_set:
         return "🇮🇱 Israeli Pride"
-    
+
     # Check for festival/event
     if festival_keywords & matched_set:
         return "🎪 Festival"
-    
+
     # Check for new release
     release_keywords = {"track", "טראק", "release", "רילייס", "unreleased", "id", "remix", "רמיקס", "bootleg", "mashup"}
     if release_keywords & matched_set:
         return "🎵 New Track"
-    
+
     # Check for party/club content
     party_keywords = {"מסיבה", "party", "rave", "אירוע", "event", "crowd", "קהל"}
     if party_keywords & matched_set:
         return "🎧 Party Clip"
-    
+
     # Check for DJ set
     dj_keywords = {"dj", "דיג'יי", "set", "סט", "b2b", "הופעה", "live", "לייב"}
     if dj_keywords & matched_set:
@@ -594,13 +610,15 @@ def score_quality(video: dict) -> tuple:
     duration = video.get('duration') or 0
     details["duration"] = duration
     if 15 <= duration <= 90:
-        score += 3.0   # TikTok sweet spot
-    elif 10 <= duration <= 180:
-        score += 2.0   # Still good
-    elif 5 <= duration <= 300:
-        score += 1.0   # Acceptable
-    # < 5s or > 300s = 0 pts
-    
+        score += 3.0   # Short clip sweet spot
+    elif 90 < duration <= 300:
+        score += 2.5   # Live set range — still excellent
+    elif 10 <= duration <= 600:
+        score += 1.5   # Acceptable
+    elif duration > 0:
+        score += 0.5
+    # else: 0 pts
+
     # 3. Has original/named sound (0-2 pts)
     track = video.get('track', '')
     artist = video.get('artist', '')
@@ -619,8 +637,26 @@ def score_quality(video: dict) -> tuple:
         score += 2.0
     elif desc_len >= 10:
         score += 1.0
-    
-    score = min(score, 10.0)
+
+    # 5. Promotional/overlay penalty (-3 to 0 pts)
+    # Heavy hashtag usage and promo phrases signal sticker-heavy/branded content
+    import re as _re
+    hashtag_count = len(_re.findall(r'#\w+', description))
+    details["hashtag_count"] = hashtag_count
+    promo_penalty = 0.0
+    if hashtag_count > 25:
+        promo_penalty -= 2.0
+    elif hashtag_count > 15:
+        promo_penalty -= 1.0
+    promo_phrases = ['link in bio', 'follow for', 'like for', 'comment below',
+                     'swipe up', 'check bio', 'pov:', 'tell me if']
+    desc_lower = description.lower()
+    if sum(1 for p in promo_phrases if p in desc_lower) >= 2:
+        promo_penalty -= 1.0
+    score += promo_penalty
+    details["promo_penalty"] = promo_penalty
+
+    score = max(min(score, 10.0), 0.0)
     return score, details
 
 
@@ -630,7 +666,7 @@ def score_quality(video: dict) -> tuple:
 
 def classify_with_ai(videos: list) -> list:
     """
-    Use Gemini to classify the top 3 videos for final relevance check.
+    Use Gemini to classify the top 5 videos for final relevance check.
     Modifies videos in-place, adding 'ai_score' and 'ai_reason'.
     Returns the videos sorted by AI-adjusted score.
     """
@@ -640,16 +676,17 @@ def classify_with_ai(videos: list) -> list:
         if not api_key:
             logger.info("No GEMINI_API_KEY, skipping AI classification")
             return videos
-        
+
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-2.0-flash')
     except Exception as e:
         logger.warning(f"Could not initialize Gemini: {e}")
         return videos
-    
-    # Build a single prompt with all 3 videos
+
+    # Build a single prompt with all 5 videos
+    top_videos = videos[:5]
     video_descriptions = []
-    for i, v in enumerate(videos[:3]):
+    for i, v in enumerate(top_videos):
         video_descriptions.append(
             f"Video {i+1}:\n"
             f"  Username: @{v.get('username', '?')}\n"
@@ -660,12 +697,17 @@ def classify_with_ai(videos: list) -> list:
             f"  Category (auto): {v.get('category', '?')}\n"
             f"  Relevance score (auto): {v.get('relevance_score', 0):.1f}/10\n"
         )
-    
+
+    schema_entries = ",\n  ".join(
+        f'{{"video": {i+1}, "score": N, "reason": "brief Hebrew reason", "best_pick": true/false}}'
+        for i in range(len(top_videos))
+    )
+
     prompt = f"""You are an expert content curator for "Parties 24/7", an Israeli nightlife/DJ TikTok & Instagram page.
 
 The page posts:
 - New tracks and releases from Israeli DJs
-- Live clips from parties and festivals
+- Live DJ sets and b2b performances (highest value content)
 - Israeli DJs performing at big international festivals (Israeli pride)
 - Big international DJs (known in Israel) playing Israeli DJ tracks
 - Festival announcements and special events
@@ -675,12 +717,12 @@ Rate each video 1-10 on how well it fits this page. Consider:
 - Content relevance to the DJ/party scene
 - Whether it would interest Israeli nightlife fans ages 16-25
 - Repost potential (would followers engage with this?)
+- Prefer clean performance footage (live sets, crowd shots, stage moments)
+- Penalize videos with heavy text overlays, promotional stickers, reaction-cam splits, or POV-style content
 
 Return ONLY valid JSON, no markdown, no explanation:
 {{"videos": [
-  {{"video": 1, "score": N, "reason": "brief Hebrew reason", "best_pick": true/false}},
-  {{"video": 2, "score": N, "reason": "brief Hebrew reason", "best_pick": true/false}},
-  {{"video": 3, "score": N, "reason": "brief Hebrew reason", "best_pick": true/false}}
+  {schema_entries}
 ]}}
 
 Here are the videos:
@@ -688,7 +730,7 @@ Here are the videos:
 {chr(10).join(video_descriptions)}"""
 
     try:
-        logger.info("🧠 Asking Gemini to classify top 3 videos...")
+        logger.info(f"🧠 Asking Gemini to classify top {len(top_videos)} videos...")
         response = model.generate_content(prompt)
         
         if not response or not response.text:
@@ -864,7 +906,7 @@ def process_user_phase1(username: str, cutoff_time) -> list:
 
         # Israeli content gets a final score boost; non-Israeli/non-top-tier gets penalised
         if is_israeli:
-            israeli_bonus = 1.5
+            israeli_bonus = 3.0  # Strong boost — Israeli DJs are the core content
             non_israeli_penalty = 1.0
         elif is_top_tier:
             israeli_bonus = 0.0
@@ -873,6 +915,9 @@ def process_user_phase1(username: str, cutoff_time) -> list:
             israeli_bonus = 0.0
             non_israeli_penalty = 0.6  # Score multiplier for unrelated content
 
+        # Live set bonus — best content type for this page
+        live_set_bonus = 1.0 if category == "🎤 Live Set" else 0.0
+
         # Lightweight quality pre-score using fields available in flat mode.
         # Duration is always present; description length is also available.
         # This replaces the flat 5.0 placeholder so Phase 1 ranking is more accurate.
@@ -880,12 +925,13 @@ def process_user_phase1(username: str, cutoff_time) -> list:
         desc_len = len((v.get('description', '') or '').strip())
         quick_quality = 0.0
         if 15 <= duration <= 90:
-            quick_quality += 5.0   # TikTok sweet spot → roughly 5/10
-        elif 10 <= duration <= 180:
-            quick_quality += 3.5
-        elif 5 <= duration <= 300:
-            quick_quality += 2.0
-        # else: very short / very long → 0
+            quick_quality += 5.0   # Short clip sweet spot
+        elif 90 < duration <= 300:
+            quick_quality += 4.5   # Live set range — excellent
+        elif 10 <= duration <= 600:
+            quick_quality += 3.0   # Acceptable
+        elif duration > 0:
+            quick_quality += 1.0
         if desc_len >= 50:
             quick_quality = min(quick_quality + 2.0, 10.0)
         elif desc_len >= 10:
@@ -898,7 +944,8 @@ def process_user_phase1(username: str, cutoff_time) -> list:
                 catch_score * WEIGHT_CATCHINESS +
                 quick_quality * WEIGHT_QUALITY
             ) * non_israeli_penalty +
-            israeli_bonus
+            israeli_bonus +
+            live_set_bonus
         )
 
         v['username'] = username
@@ -949,7 +996,7 @@ def deep_scan_phase2(candidates: list, limit: int = 15) -> list:
                 
                 # Recalculate final score with real quality, preserving Israeli/penalty logic
                 if v.get('is_israeli'):
-                    p2_bonus = 1.5
+                    p2_bonus = 3.0  # Strong boost — Israeli DJs are the core content
                     p2_penalty = 1.0
                 elif v.get('is_top_tier'):
                     p2_bonus = 0.0
@@ -957,13 +1004,15 @@ def deep_scan_phase2(candidates: list, limit: int = 15) -> list:
                 else:
                     p2_bonus = 0.0
                     p2_penalty = 0.6
+                p2_live_bonus = 1.0 if v.get('category') == "🎤 Live Set" else 0.0
                 v['final_score'] = (
                     (
                         v['relevance_score'] * WEIGHT_RELEVANCE +
                         v['catchiness_score'] * WEIGHT_CATCHINESS +
                         qual_score * WEIGHT_QUALITY
                     ) * p2_penalty +
-                    p2_bonus
+                    p2_bonus +
+                    p2_live_bonus
                 )
         except Exception as e:
             logger.error(f"Phase 2 error for {video_url}: {e}")
@@ -987,7 +1036,7 @@ def run_full_scan() -> list:
     # Load previously seen video IDs to avoid re-recommending
     seen_videos = load_seen_videos()
 
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
     all_candidates = []
 
     # ===== Phase 1: Fast parallel scan =====
@@ -1053,7 +1102,7 @@ def run_full_scan() -> list:
 def format_scan_results(videos: list, limit: int = 10) -> str:
     """Format scan results as a rich Telegram message."""
     if not videos:
-        return "📭 No relevant trending videos found in the last 24 hours."
+        return "📭 No relevant trending videos found in the last 48 hours."
     
     top = videos[:limit]
     lines = [f"🔥 *Top {len(top)} Trending Videos* 🔥\n"]
@@ -1144,7 +1193,7 @@ async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔍 *Smart Scan Starting*\n\n"
         f"📊 Phase 1: Scanning {len(users)} users (fast)...\n"
         f"🔬 Phase 2: Deep quality check (top 15)...\n"
-        f"🤖 Phase 3: AI classification (top 3)...\n\n"
+        f"🤖 Phase 3: AI classification (top 5)...\n\n"
         f"⏳ This may take 5-10 minutes.",
         parse_mode="Markdown"
     )
@@ -1243,7 +1292,7 @@ async def trends_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         "2️⃣ Scores relevance (DJ/party content)\n"
         "3️⃣ Checks engagement & virality\n"
         "4️⃣ Deep quality check on top 15\n"
-        "5️⃣ AI picks the best from top 3\n\n"
+        "5️⃣ AI picks the best from top 5\n\n"
         f"📅 Auto scan: {SCAN_HOUR:02d}:{SCAN_MINUTE:02d} Israel time\n"
         f"👁 Monitoring {len(get_target_users())} users",
         parse_mode="Markdown"

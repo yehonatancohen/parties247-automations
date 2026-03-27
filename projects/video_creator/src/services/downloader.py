@@ -127,17 +127,62 @@ class VideoDownloader:
         return stories
 
     @staticmethod
+    def _download_with_cobalt(url: str, output_path: str) -> tuple[str, dict]:
+        """Download via Cobalt.tools free API — no cookies needed."""
+        print(f"⬇️ Downloading via Cobalt API...")
+        resp = requests.post(
+            'https://api.cobalt.tools/',
+            headers={'Accept': 'application/json', 'Content-Type': 'application/json'},
+            json={'url': url},
+            timeout=30
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        status = data.get('status')
+        if status == 'picker':
+            # Multiple files — take first video entry
+            download_url = next(
+                (item['url'] for item in data.get('picker', []) if item.get('type') == 'video'),
+                data.get('audio')
+            )
+        elif status in ('tunnel', 'redirect', 'stream'):
+            download_url = data.get('url')
+        else:
+            raise Exception(f"Cobalt API returned status: {status} — {data.get('error', data)}")
+
+        if not download_url:
+            raise Exception("Cobalt: no download URL in response")
+
+        with requests.get(download_url, stream=True, timeout=60) as r:
+            r.raise_for_status()
+            with open(output_path, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+
+        metadata = {
+            'title': data.get('filename', 'Video'),
+            'description': 'N/A',
+            'uploader': 'N/A',
+            'tags': []
+        }
+        return output_path, metadata
+
+    @staticmethod
     def download_video(url: str) -> tuple[str, dict]:
         """
-        Downloads a video using Cobalt (primary), yt-dlp, or Playwright.
+        Downloads a video using Cobalt (primary for Instagram), yt-dlp, or Playwright.
         """
         output_filename = f"{uuid.uuid4()}.mp4"
         output_path = os.path.join(Config.TEMP_DIR, output_filename)
-        
-        # Strategies: yt-dlp -> Playwright
-        strategies = [
+
+        # For Instagram, try Cobalt first (no auth required)
+        is_instagram = 'instagram.com' in url
+        strategies = (
+            [VideoDownloader._download_with_cobalt] if is_instagram else []
+        ) + [
             VideoDownloader._download_with_ytdlp,
-            VideoDownloader._download_with_playwright
+            VideoDownloader._download_with_playwright,
         ]
             
         errors = []

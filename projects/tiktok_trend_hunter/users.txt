@@ -108,3 +108,18 @@ roeinimni
 tracks.id.preview
 baduk.il
 kadenkangg
+# Israeli artists
+borgore
+infectedmushroom
+solomun
+blastoyz
+astrixofficial
+# Top-tier international
+artbat
+amelielens
+charlottedewitte
+camelphat
+adambeyer
+ninakraviz
+keinemusik
+fredagain
