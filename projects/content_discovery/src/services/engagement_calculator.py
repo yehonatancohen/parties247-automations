@@ -1,151 +1,169 @@
 """
-Engagement Rate Calculator for Content Discovery Bot.
+Engagement & Potential-Hit Calculator for Content Discovery Bot.
 
-Calculates engagement rates and identifies potential viral content.
+`potential_score` combines velocity (likes/hour), engagement ratio vs baseline,
+absolute reach, share/save boost, a small-creator multiplier, and an
+Israeli-signal multiplier supplied by IsraeliContentDetector.
 """
 
-import re
+from datetime import datetime
+from math import log10
 from typing import List, Optional
+
 from config import Config
+from services.israeli_detector import IsraeliContentDetector
 
 
 class EngagementCalculator:
-    """Calculate engagement rates and identify potential hits."""
-    
-    def __init__(self, hit_threshold: float = None):
-        """
-        Initialize the calculator.
-        
-        Args:
-            hit_threshold: Multiplier above baseline to consider a hit (default: 1.5)
-        """
-        self.hit_threshold = hit_threshold or Config.HIT_THRESHOLD
+    """Calculate engagement rates, Israeli signals, and potential-hit score."""
+
+    def __init__(
+        self,
+        detector: Optional[IsraeliContentDetector] = None,
+        potential_hit_threshold: Optional[float] = None,
+    ):
+        self.detector = detector or IsraeliContentDetector()
+        self.threshold = (
+            potential_hit_threshold
+            if potential_hit_threshold is not None
+            else Config.POTENTIAL_HIT_THRESHOLD
+        )
         self.category_keywords = Config.CATEGORY_KEYWORDS
         self.israeli_djs = [dj.lower() for dj in Config.ISRAELI_DJS]
-    
+
+    # ------------------------------------------------------------------ #
+    # Engagement rate + baseline                                         #
+    # ------------------------------------------------------------------ #
+
     def calculate_engagement_rate(
         self,
         views: int,
         likes: int,
         comments: int,
         shares: int = 0,
-        followers: int = 0
+        followers: int = 0,
     ) -> float:
-        """
-        Calculate engagement rate for a video.
-        
-        For videos with significant views (>100):
-            Engagement = (likes + comments + shares) / views * 100
-        
-        For new videos with few views:
-            Engagement = (likes + comments) / followers * 100
-        
-        Args:
-            views: Number of views
-            likes: Number of likes
-            comments: Number of comments
-            shares: Number of shares (optional)
-            followers: Author's follower count (used for low-view videos)
-        
-        Returns:
-            Engagement rate as a percentage
-        """
-        total_engagement = likes + comments + shares
-        
-        if views >= 100:
-            # Standard engagement rate based on views
-            return (total_engagement / views) * 100 if views > 0 else 0.0
-        elif followers > 0:
-            # Fall back to follower-based engagement for new content
+        """Engagement as a percentage. Uses views when meaningful, else followers."""
+        total = likes + comments + shares
+        if views and views >= 100:
+            return (total / views) * 100
+        if followers > 0:
             return ((likes + comments) / followers) * 100
-        else:
-            # Can't calculate meaningful engagement
-            return 0.0
-    
+        return 0.0
+
     def calculate_baseline(self, videos_data: List[dict]) -> float:
-        """
-        Calculate baseline engagement rate from historical videos.
-        
-        Args:
-            videos_data: List of dicts with views, likes, comments, shares
-        
-        Returns:
-            Average engagement rate
-        """
+        """Average engagement rate across historical videos (non-zero only)."""
         if not videos_data:
             return 0.0
-        
         rates = []
-        for video in videos_data:
-            rate = self.calculate_engagement_rate(
-                views=video.get("views", 0),
-                likes=video.get("likes", 0),
-                comments=video.get("comments", 0),
-                shares=video.get("shares", 0),
-                followers=video.get("followers", 0)
+        for v in videos_data:
+            r = self.calculate_engagement_rate(
+                views=v.get("views", 0),
+                likes=v.get("likes", 0),
+                comments=v.get("comments", 0),
+                shares=v.get("shares", 0),
+                followers=v.get("followers", 0),
             )
-            if rate > 0:
-                rates.append(rate)
-        
+            if r > 0:
+                rates.append(r)
         return sum(rates) / len(rates) if rates else 0.0
-    
-    def calculate_hit_score(self, engagement_rate: float, baseline: float) -> float:
-        """
-        Calculate hit score (how much above baseline).
-        
-        Args:
-            engagement_rate: Current video's engagement rate
-            baseline: Author's baseline engagement rate
-        
-        Returns:
-            Hit score (e.g., 2.0 means 2x the baseline)
-        """
-        if baseline <= 0:
-            return 0.0
-        return engagement_rate / baseline
-    
-    def is_potential_hit(self, hit_score: float) -> bool:
-        """
-        Determine if a video is a potential hit.
-        
-        Args:
-            hit_score: The calculated hit score
-        
-        Returns:
-            True if hit score >= threshold (default 1.5x)
-        """
-        return hit_score >= self.hit_threshold
-    
-    def categorize_video(self, caption: str, hashtags: List[str] = None) -> str:
-        """
-        Categorize video based on content analysis.
-        
-        Args:
-            caption: Video caption/description
-            hashtags: List of hashtags
-        
-        Returns:
-            Category string
-        """
-        text = caption.lower()
+
+    # ------------------------------------------------------------------ #
+    # Potential-hit score                                                #
+    # ------------------------------------------------------------------ #
+
+    def calculate_potential_score(
+        self,
+        views: int,
+        likes: int,
+        comments: int,
+        shares: int,
+        saves: int,
+        followers: int,
+        baseline_rate: float,
+        posted_at: Optional[datetime],
+        israeli_signal_score: float = 0.0,
+    ) -> dict:
+        """Composite potential-hit score. See plan §2 for the formula."""
+        now = datetime.now()
+        if posted_at is None:
+            hours = 1.0
+        else:
+            # posted_at may be tz-aware; strip for a simple delta
+            pa = posted_at.replace(tzinfo=None) if posted_at.tzinfo else posted_at
+            hours = max((now - pa).total_seconds() / 3600, 0.5)
+
+        # Velocity: likes per hour, log-scaled to ~0..2
+        likes_per_hour = (likes or 0) / hours
+        velocity = log10(1 + likes_per_hour) / max(Config.VELOCITY_LOG_DIVISOR, 0.01)
+
+        # Engagement ratio vs baseline, capped and normalized to 0..1
+        engagement_rate = self.calculate_engagement_rate(
+            views, likes, comments, shares, followers
+        )
+        ratio = engagement_rate / max(baseline_rate, 0.01)
+        engagement = min(ratio, 5.0) / 5.0
+
+        # Reach: log-scaled views, roughly 0..1.3
+        reach = log10(1 + max(views or 0, 0)) / max(Config.REACH_LOG_DIVISOR, 0.01)
+
+        # Share / save boost relative to likes (weighted: shares count more than saves)
+        share_weight = ((shares or 0) * 3 + (saves or 0) * 2) / max(likes or 1, 1)
+        share_boost = min(share_weight, 0.5)
+
+        # Small-creator multiplier
+        if followers and followers < Config.SMALL_CREATOR_FOLLOWER_CAP:
+            small_creator = 1.3
+        elif followers and followers < Config.MID_CREATOR_FOLLOWER_CAP:
+            small_creator = 1.1
+        else:
+            small_creator = 1.0
+
+        # Israeli-signal multiplier, up to +50%
+        israeli_mult = 1.0 + min(max(israeli_signal_score, 0.0) / 10.0, 0.5)
+
+        base = (
+            0.45 * velocity
+            + 0.30 * engagement
+            + 0.15 * reach
+            + 0.10 * share_boost
+        )
+        potential = base * small_creator * israeli_mult
+
+        return {
+            "potential_score": round(potential, 4),
+            "velocity_score": round(velocity, 4),
+            "reach_score": round(reach, 4),
+            "engagement_rate": round(engagement_rate, 2),
+            "is_potential_hit": potential >= self.threshold,
+        }
+
+    # ------------------------------------------------------------------ #
+    # Categorization (kept for report emoji — orthogonal to scoring)     #
+    # ------------------------------------------------------------------ #
+
+    def categorize_video(self, caption: str, hashtags: Optional[List[str]] = None) -> str:
+        text = (caption or "").lower()
         if hashtags:
-            text += " " + " ".join(h.lower() for h in hashtags)
-        
-        # Check for Israeli DJs
+            text += " " + " ".join((h or "").lower() for h in hashtags)
+
         for dj in self.israeli_djs:
             if dj in text:
                 return "israeli_dj"
-        
-        # Check category keywords
+
         for category, keywords in self.category_keywords.items():
             if category == "israeli_dj":
-                continue  # Already checked above
+                continue
             for keyword in keywords:
                 if keyword.lower() in text:
                     return category
-        
+
         return "general"
-    
+
+    # ------------------------------------------------------------------ #
+    # Full video analysis                                                #
+    # ------------------------------------------------------------------ #
+
     def analyze_video(
         self,
         views: int,
@@ -155,58 +173,57 @@ class EngagementCalculator:
         followers: int,
         baseline: float,
         caption: str = "",
-        hashtags: List[str] = None
+        hashtags: Optional[List[str]] = None,
+        saves: int = 0,
+        posted_at: Optional[datetime] = None,
+        location: Optional[dict] = None,
+        author_username: str = "",
     ) -> dict:
-        """
-        Full analysis of a video.
-        
-        Returns:
-            Dict with engagement_rate, hit_score, is_potential_hit, category
-        """
-        engagement_rate = self.calculate_engagement_rate(
-            views, likes, comments, shares, followers
+        """Full analysis — detector + potential score + category."""
+        israeli = self.detector.detect(
+            caption=caption,
+            hashtags=hashtags,
+            location=location,
+            author_username=author_username,
         )
-        hit_score = self.calculate_hit_score(engagement_rate, baseline)
-        potential_hit = self.is_potential_hit(hit_score)
-        category = self.categorize_video(caption, hashtags)
-        
+
+        score_info = self.calculate_potential_score(
+            views=views,
+            likes=likes,
+            comments=comments,
+            shares=shares,
+            saves=saves,
+            followers=followers,
+            baseline_rate=baseline,
+            posted_at=posted_at,
+            israeli_signal_score=israeli["score"],
+        )
+
         return {
-            "engagement_rate": round(engagement_rate, 2),
-            "hit_score": round(hit_score, 2),
-            "is_potential_hit": potential_hit,
-            "category": category
+            "engagement_rate": score_info["engagement_rate"],
+            "potential_score": score_info["potential_score"],
+            "velocity_score": score_info["velocity_score"],
+            "reach_score": score_info["reach_score"],
+            "is_potential_hit": score_info["is_potential_hit"],
+            "category": self.categorize_video(caption, hashtags),
+            "is_israeli": israeli["is_israeli"],
+            "israeli_signal_score": israeli["score"],
+            "israeli_signals": israeli["signals"],
         }
 
 
-# Simple test
 if __name__ == "__main__":
     calc = EngagementCalculator()
-    
-    # Test engagement calculation
-    rate = calc.calculate_engagement_rate(
+    result = calc.analyze_video(
         views=10000,
         likes=500,
         comments=50,
-        shares=100
+        shares=100,
+        followers=5000,
+        baseline=5.0,
+        caption="מסיבה מטורפת ב-Haoman 17 הלילה! #מסיבה #תלאביב",
+        hashtags=["מסיבה", "תלאביב"],
+        saves=20,
+        posted_at=datetime.now(),
     )
-    print(f"Engagement rate: {rate}%")
-    
-    # Test baseline calculation
-    historical = [
-        {"views": 5000, "likes": 200, "comments": 20, "shares": 30},
-        {"views": 8000, "likes": 300, "comments": 40, "shares": 50},
-        {"views": 3000, "likes": 100, "comments": 15, "shares": 10},
-    ]
-    baseline = calc.calculate_baseline(historical)
-    print(f"Baseline: {baseline}%")
-    
-    # Test hit detection
-    hit_score = calc.calculate_hit_score(rate, baseline)
-    print(f"Hit score: {hit_score}x")
-    print(f"Is potential hit: {calc.is_potential_hit(hit_score)}")
-    
-    # Test categorization
-    category = calc.categorize_video(
-        "New track by Infected Mushroom dropping soon! 🔥 #newmusic #psytrance"
-    )
-    print(f"Category: {category}")
+    print(result)

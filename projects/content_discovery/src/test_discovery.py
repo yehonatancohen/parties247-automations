@@ -134,32 +134,32 @@ def analyze_videos(videos: list) -> list:
         )
         
         video.engagement_rate = analysis["engagement_rate"]
-        video.hit_score = analysis["hit_score"]
+        video.potential_score = analysis["potential_score"]
         video.is_potential_hit = analysis["is_potential_hit"]
         video.category = analysis["category"]
-    
-    # Sort by hit score
-    videos.sort(key=lambda v: v.hit_score, reverse=True)
-    
+
+    # Sort by potential score
+    videos.sort(key=lambda v: v.potential_score, reverse=True)
+
     # Show results
     potential_hits = [v for v in videos if v.is_potential_hit]
-    print(f"\n🔥 POTENTIAL HITS: {len(potential_hits)} (threshold: {Config.HIT_THRESHOLD}x)")
-    
+    print(f"\n🔥 POTENTIAL HITS: {len(potential_hits)} (threshold: {Config.POTENTIAL_HIT_THRESHOLD})")
+
     for video in potential_hits[:10]:
         print(f"\n  🎯 @{video.author_username} ({video.platform})")
-        print(f"     Score: {video.hit_score:.2f}x | Views: {video.views:,} | Likes: {video.likes:,}")
+        print(f"     Score: {video.potential_score:.2f} | Views: {video.views:,} | Likes: {video.likes:,}")
         print(f"     Engagement: {video.engagement_rate:.2f}%")
         print(f"     Category: {video.category}")
         print(f"     URL: {video.video_url}")
         if video.caption:
             print(f"     Caption: {video.caption[:80]}...")
-    
+
     if not potential_hits:
         print("\n  No videos above the threshold found.")
-        print("\n  📊 Top 5 videos by engagement score:")
+        print("\n  📊 Top 5 videos by potential score:")
         for i, video in enumerate(videos[:5], 1):
             print(f"\n  {i}. @{video.author_username}")
-            print(f"     Score: {video.hit_score:.2f}x | Views: {video.views:,} | Likes: {video.likes:,}")
+            print(f"     Score: {video.potential_score:.2f} | Views: {video.views:,} | Likes: {video.likes:,}")
             print(f"     URL: {video.video_url}")
     
     return videos
@@ -191,7 +191,7 @@ async def main():
     print("=" * 70)
     print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"TikTok User: @{Config.TIKTOK_USERNAME}")
-    print(f"Hit Threshold: {Config.HIT_THRESHOLD}x")
+    print(f"Potential-Hit Threshold: {Config.POTENTIAL_HIT_THRESHOLD}")
     print(f"Video Age Limit: {Config.VIDEO_AGE_HOURS}h")
     print("\n⚠️ Instagram disabled for this test (IP blocked)")
     

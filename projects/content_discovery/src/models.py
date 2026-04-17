@@ -4,7 +4,7 @@ Data models for Content Discovery Bot.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import json
 
 
@@ -24,18 +24,30 @@ class VideoCandidate:
     likes: int = 0
     comments: int = 0
     shares: int = 0
-    
+    saves: int = 0
+
     # Calculated scores
     engagement_rate: float = 0.0
     baseline_rate: float = 0.0
-    hit_score: float = 0.0
+    potential_score: float = 0.0
+    velocity_score: float = 0.0
+    reach_score: float = 0.0
     is_potential_hit: bool = False
-    
+
     # Content info
     caption: str = ""
     category: str = "unknown"
     hashtags: List[str] = field(default_factory=list)
-    
+    location: Optional[Dict[str, Any]] = None
+
+    # Israeli detection signals
+    is_israeli: bool = False
+    israeli_signal_score: float = 0.0
+    israeli_signals: List[str] = field(default_factory=list)
+
+    # Discovery provenance — set when the video came from a hashtag crawl
+    discovered_via_hashtag: Optional[str] = None
+
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -50,22 +62,30 @@ class VideoCandidate:
             "likes": self.likes,
             "comments": self.comments,
             "shares": self.shares,
+            "saves": self.saves,
             "engagement_rate": self.engagement_rate,
             "baseline_rate": self.baseline_rate,
-            "hit_score": self.hit_score,
+            "potential_score": self.potential_score,
+            "velocity_score": self.velocity_score,
+            "reach_score": self.reach_score,
             "is_potential_hit": self.is_potential_hit,
             "caption": self.caption,
             "category": self.category,
-            "hashtags": self.hashtags
+            "hashtags": self.hashtags,
+            "location": self.location,
+            "is_israeli": self.is_israeli,
+            "israeli_signal_score": self.israeli_signal_score,
+            "israeli_signals": self.israeli_signals,
+            "discovered_via_hashtag": self.discovered_via_hashtag,
         }
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> "VideoCandidate":
-        """Create from dictionary."""
+        """Create from dictionary. Tolerates older JSON missing new fields."""
         posted_at = None
         if data.get("posted_at"):
             posted_at = datetime.fromisoformat(data["posted_at"])
-        
+
         return cls(
             platform=data["platform"],
             video_url=data["video_url"],
@@ -78,13 +98,21 @@ class VideoCandidate:
             likes=data.get("likes", 0),
             comments=data.get("comments", 0),
             shares=data.get("shares", 0),
+            saves=data.get("saves", 0),
             engagement_rate=data.get("engagement_rate", 0.0),
             baseline_rate=data.get("baseline_rate", 0.0),
-            hit_score=data.get("hit_score", 0.0),
+            potential_score=data.get("potential_score", 0.0),
+            velocity_score=data.get("velocity_score", 0.0),
+            reach_score=data.get("reach_score", 0.0),
             is_potential_hit=data.get("is_potential_hit", False),
             caption=data.get("caption", ""),
             category=data.get("category", "unknown"),
-            hashtags=data.get("hashtags", [])
+            hashtags=data.get("hashtags", []),
+            location=data.get("location"),
+            is_israeli=data.get("is_israeli", False),
+            israeli_signal_score=data.get("israeli_signal_score", 0.0),
+            israeli_signals=data.get("israeli_signals", []),
+            discovered_via_hashtag=data.get("discovered_via_hashtag"),
         )
 
 

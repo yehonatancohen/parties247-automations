@@ -99,14 +99,14 @@ class FollowSuggester:
             # Check if they have potential hits
             hits = [v for v in user_videos if v.is_potential_hit]
             if hits:
-                best_video = max(hits, key=lambda v: v.hit_score)
-                
+                best_video = max(hits, key=lambda v: v.potential_score)
+
                 suggestions.append(FollowSuggestion(
                     platform=platform,
                     username=username,
                     display_name=best_video.author_display_name,
                     followers=best_video.author_followers,
-                    reason=f"Posted potential hit video ({best_video.hit_score:.1f}x engagement)",
+                    reason=f"Posted potential hit video (score {best_video.potential_score:.2f})",
                     sample_content=best_video.caption[:100] if best_video.caption else ""
                 ))
                 seen_accounts.add(key)
@@ -223,7 +223,7 @@ if __name__ == "__main__":
             comments=100,
             engagement_rate=21.0,
             baseline_rate=5.0,
-            hit_score=4.2,
+            potential_score=0.72,
             is_potential_hit=True,
             caption="Amazing set at @theclub with @dj_friend! 🔥",
             category="viral"
@@ -239,7 +239,7 @@ if __name__ == "__main__":
             comments=500,
             engagement_rate=17.0,
             baseline_rate=8.0,
-            hit_score=2.1,
+            potential_score=0.58,
             is_potential_hit=True,
             caption="Check out this new track by @israelidj",
             category="release"

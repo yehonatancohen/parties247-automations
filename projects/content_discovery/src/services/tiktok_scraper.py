@@ -95,6 +95,29 @@ class TikTokScraper:
             if posted_at < cutoff_time:
                 continue
             
+            caption_text = entry.get('description', '') or entry.get('title', '') or ''
+            raw_tags = entry.get('tags') or []
+            regex_tags = re.findall(r'#([\w\u0590-\u05FF]+)', caption_text)
+            merged_tags = []
+            seen_tags = set()
+            for t in list(raw_tags) + list(regex_tags):
+                key = t.lower().lstrip('#')
+                if key and key not in seen_tags:
+                    seen_tags.add(key)
+                    merged_tags.append(key)
+
+            raw_location = entry.get('location')
+            location = None
+            if raw_location:
+                if isinstance(raw_location, dict):
+                    location = {
+                        "name": raw_location.get("name"),
+                        "city": raw_location.get("city"),
+                        "country": raw_location.get("country"),
+                    }
+                else:
+                    location = {"name": str(raw_location), "city": None, "country": None}
+
             video = VideoCandidate(
                 platform="tiktok",
                 video_url=entry.get('webpage_url') or entry.get('webpage_url_basename'), # fallback
@@ -107,8 +130,9 @@ class TikTokScraper:
                 likes=entry.get('like_count', 0),
                 comments=entry.get('comment_count', 0),
                 shares=entry.get('repost_count', 0),
-                caption=entry.get('description', '') or entry.get('title', ''),
-                hashtags=entry.get('tags', [])
+                caption=caption_text,
+                hashtags=merged_tags,
+                location=location,
             )
             
             # yt-dlp return validation

@@ -200,7 +200,21 @@ class InstagramScraper:
                 posted_at = reel.taken_at
                 if posted_at and posted_at.replace(tzinfo=None) < cutoff_time:
                     continue
-                
+
+                location = None
+                try:
+                    raw_loc = getattr(reel, "location", None)
+                    if raw_loc:
+                        location = {
+                            "name": getattr(raw_loc, "name", None),
+                            "city": getattr(raw_loc, "city", None),
+                            "country": None,
+                            "lat": getattr(raw_loc, "lat", None),
+                            "lng": getattr(raw_loc, "lng", None),
+                        }
+                except Exception:
+                    location = None
+
                 video = VideoCandidate(
                     platform="instagram",
                     video_url=f"https://www.instagram.com/reel/{reel.code}/",
@@ -213,8 +227,10 @@ class InstagramScraper:
                     likes=reel.like_count or 0,
                     comments=reel.comment_count or 0,
                     shares=0,  # Instagram doesn't expose share count
+                    saves=getattr(reel, "save_count", 0) or 0,
                     caption=reel.caption_text or "",
-                    hashtags=self._extract_hashtags(reel.caption_text or "")
+                    hashtags=self._extract_hashtags(reel.caption_text or ""),
+                    location=location,
                 )
                 videos.append(video)
             
@@ -272,9 +288,19 @@ class InstagramScraper:
             return 0.0
     
     def _extract_hashtags(self, text: str) -> List[str]:
-        """Extract hashtags from text."""
+        """Extract hashtags, preserving Hebrew characters and stripping trailing punctuation."""
         import re
-        return re.findall(r'#(\w+)', text)
+        if not text:
+            return []
+        raw = re.findall(r'#([\w\u0590-\u05FF]+)', text)
+        seen = set()
+        tags = []
+        for t in raw:
+            cleaned = t.rstrip('.,!?)]:;').lower()
+            if cleaned and cleaned not in seen:
+                seen.add(cleaned)
+                tags.append(cleaned)
+        return tags
     
     async def scan_following_for_videos(self) -> List[VideoCandidate]:
         """

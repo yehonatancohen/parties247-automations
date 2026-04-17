@@ -61,9 +61,25 @@ class Config:
     TIMEZONE = os.getenv("TIMEZONE", "Asia/Jerusalem")
     
     # Engagement thresholds
-    HIT_THRESHOLD = float(os.getenv("HIT_THRESHOLD", "1.5"))  # 1.5x baseline = potential hit
-    VIDEO_AGE_HOURS = int(os.getenv("VIDEO_AGE_HOURS", "48"))  # Check videos from last 24h
+    VIDEO_AGE_HOURS = int(os.getenv("VIDEO_AGE_HOURS", "48"))  # Check videos from last N hours
     BASELINE_POSTS_COUNT = int(os.getenv("BASELINE_POSTS_COUNT", "20"))  # Posts to calculate baseline
+
+    # Potential-hit scoring (new composite score)
+    POTENTIAL_HIT_THRESHOLD = float(os.getenv("POTENTIAL_HIT_THRESHOLD", "0.55"))
+    SMALL_CREATOR_FOLLOWER_CAP = int(os.getenv("SMALL_CREATOR_FOLLOWER_CAP", "20000"))
+    MID_CREATOR_FOLLOWER_CAP = int(os.getenv("MID_CREATOR_FOLLOWER_CAP", "100000"))
+    VELOCITY_LOG_DIVISOR = float(os.getenv("VELOCITY_LOG_DIVISOR", "2.5"))
+    REACH_LOG_DIVISOR = float(os.getenv("REACH_LOG_DIVISOR", "6.0"))
+
+    # Israeli detection
+    HEBREW_CHAR_RATIO_THRESHOLD = float(os.getenv("HEBREW_CHAR_RATIO_THRESHOLD", "0.15"))
+    ISRAELI_SIGNAL_THRESHOLD = float(os.getenv("ISRAELI_SIGNAL_THRESHOLD", "2.0"))
+
+    # Hashtag discovery
+    ENABLE_HASHTAG_DISCOVERY = os.getenv("ENABLE_HASHTAG_DISCOVERY", "1") == "1"
+    DISCOVERY_VIDEOS_PER_HASHTAG = int(os.getenv("DISCOVERY_VIDEOS_PER_HASHTAG", "15"))
+    DISCOVERY_MAX_HASHTAGS_PER_RUN = int(os.getenv("DISCOVERY_MAX_HASHTAGS_PER_RUN", "8"))
+    DISCOVERY_CONCURRENCY = int(os.getenv("DISCOVERY_CONCURRENCY", "2"))
     
     # Paths
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -106,13 +122,54 @@ class Config:
         "israeli_dj": []  # Will be populated with Israeli DJ names
     }
     
-    # Known Israeli DJs (for categorization)
+    # Known Israeli DJs (for categorization & Israeli-signal scoring)
     ISRAELI_DJS = [
         "infected mushroom", "astrix", "vini vici", "blastoyz", "ace ventura",
         "captain hook", "berg", "xerox", "volcano", "reality test", "symphonix",
-        "generic", "omiki", "paz", "skazi", "yahel", "offer nissim", "guy gerber"
+        "generic", "omiki", "paz", "skazi", "yahel", "offer nissim", "guy gerber",
+        "keren peles", "static & ben el", "noy alooshe", "ran harel",
+        "guy scheiman", "itay kalderon",
     ]
-    
+
+    # Non-DJ Israeli creators allowlist (TikTok/IG usernames, lowercased)
+    ISRAELI_CREATORS: list = []
+
+    # Israeli venues (nightclubs, festival spots) — matched as substrings in caption/hashtags
+    ISRAELI_VENUES = [
+        "haoman 17", "haoman17", "forum tlv", "forum tel aviv",
+        "the block", "block tlv", "gagarin", "shablul", "pacha tlv",
+        "teder", "kuli alma", "alphabet", "breakfast club",
+        "radio epgb", "clara", "phi beach tlv",
+    ]
+
+    # Israeli cities (English + Hebrew forms)
+    ISRAELI_CITIES = [
+        "tel aviv", "tel-aviv", "telaviv", "jerusalem", "eilat", "haifa",
+        "herzliya", "ashdod", "netanya", "beer sheva",
+        "תל אביב", "תל־אביב", "ירושלים", "אילת", "חיפה", "הרצליה", "ראשון לציון",
+    ]
+
+    # Hebrew hashtags commonly used in Israeli nightlife/party content
+    ISRAELI_HASHTAGS_HE = [
+        "מסיבה", "מסיבות", "טראנס", "פסיטרנס", "פסיכדלי", "פסטיבל",
+        "מועדון", "תלאביב", "תל_אביב", "ירושלים", "אילת", "חיפה",
+        "דיגיי", "דיג׳יי", "רייב", "טכנו", "האומן17", "לילה",
+        "חיינייט", "ישראל", "נייטלייף", "קליפ", "מיקס", "סט",
+    ]
+
+    # Latin-alphabet hashtags for Israeli nightlife content
+    ISRAELI_HASHTAGS_EN = [
+        "telaviv", "telavivnightlife", "israelparty", "israelnightlife",
+        "haoman17", "forumtlv", "tlvnights", "blocktlv", "pachatlv",
+        "gagarintlv", "shablultlv",
+    ]
+
+    # Hashtags used to crawl for new Israeli creators (curated subset)
+    DISCOVERY_HASHTAGS = [
+        "מסיבה", "טראנס", "פסטיבל", "רייב", "תלאביב",
+        "telaviv", "telavivnightlife", "israelnightlife", "haoman17",
+    ]
+
     @staticmethod
     def get_allowed_user_ids():
         """Get all allowed user IDs."""
