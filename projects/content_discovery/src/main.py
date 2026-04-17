@@ -388,6 +388,16 @@ async def run_discovery_scan() -> DailyReport:
     return report
 
 
+def _md_escape(text) -> str:
+    """Escape Telegram legacy-Markdown special chars in dynamic fields."""
+    if text is None:
+        return ""
+    s = str(text)
+    for ch in ("\\", "_", "*", "`", "["):
+        s = s.replace(ch, "\\" + ch)
+    return s
+
+
 def format_report_message(report: DailyReport) -> str:
     """Format the report as a Telegram message."""
     lines = [
@@ -411,7 +421,7 @@ def format_report_message(report: DailyReport) -> str:
             emoji = "🎵" if video.category == "release" else "🎪" if video.category == "festival" else "🔥"
             il_flag = "🇮🇱 " if video.is_israeli else ""
             discovered_tag = (
-                f" [via #{video.discovered_via_hashtag}]"
+                f" (via #{_md_escape(video.discovered_via_hashtag)})"
                 if video.discovered_via_hashtag
                 else ""
             )
@@ -421,12 +431,16 @@ def format_report_message(report: DailyReport) -> str:
                 hours = max((now - pa).total_seconds() / 3600, 0.5)
                 likes_per_hour = (video.likes or 0) / hours
             lines.append(
-                f"\n{i}. {il_flag}{emoji} @{video.author_username} ({video.platform}){discovered_tag}\n"
+                f"\n{i}. {il_flag}{emoji} @{_md_escape(video.author_username)} "
+                f"({_md_escape(video.platform)}){discovered_tag}\n"
                 f"   Score: {video.potential_score:.2f} | {video.views:,} views | {likes_per_hour:.0f} likes/hr\n"
-                f"   Category: {video.category}"
+                f"   Category: {_md_escape(video.category)}"
             )
             if video.israeli_signals:
-                lines.append(f"   Signals: {', '.join(video.israeli_signals[:4])}")
+                lines.append(
+                    "   Signals: "
+                    + ", ".join(_md_escape(s) for s in video.israeli_signals[:4])
+                )
             lines.append(f"   [View]({video.video_url})")
         lines.append("")
     else:
@@ -436,20 +450,21 @@ def format_report_message(report: DailyReport) -> str:
     if report.media_articles:
         lines.append("📰 *Party News:*")
         for article in report.media_articles[:5]:
-            lines.append(f"• [{article.title[:50]}...]({article.url})")
+            title = _md_escape(article.title[:50])
+            lines.append(f"• [{title}...]({article.url})")
         lines.append("")
 
     if report.new_followings_detected:
         lines.append("🆕 *New Followings Detected:*")
         for f in report.new_followings_detected[:5]:
-            lines.append(f"• {f}")
+            lines.append(f"• {_md_escape(f)}")
         lines.append("")
 
     if report.follow_suggestions:
         lines.append("💡 *Follow Suggestions:*")
         for s in report.follow_suggestions[:5]:
-            lines.append(f"• @{s.username} ({s.platform})")
-            lines.append(f"  _{s.reason}_")
+            lines.append(f"• @{_md_escape(s.username)} ({_md_escape(s.platform)})")
+            lines.append(f"  _{_md_escape(s.reason)}_")
         lines.append("")
 
     if report.errors:
