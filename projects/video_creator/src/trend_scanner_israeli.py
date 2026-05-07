@@ -1,12 +1,11 @@
 """
-Trend Scanner - Global Viral Party Content Discovery for Parties247
+Trend Scanner - Smart Content Discovery for Parties247
 
 Scans TikTok users for trending videos that match the Parties247 content style:
-  - Viral party and club moments (global)
-  - Festival highlights from major international festivals
-  - Live DJ sets and b2b performances
-  - Crowd energy and dance floor moments
-  - Trending party culture and rave content
+  - Israeli DJ content (tracks, sets, festival clips)
+  - International DJs known in Israel
+  - Festival moments, party culture, viral club moments
+  - Israeli pride moments (Israeli DJ at big festival, etc.)
 
 3-Layer Scoring Algorithm:
   Layer 1: Content Relevance (50%) - keyword/category matching
@@ -75,8 +74,10 @@ WEIGHT_CATCHINESS = 0.30
 WEIGHT_QUALITY = 0.20
 
 # Short / ambiguous keywords that need whole-word matching to avoid false positives.
+# e.g. "id" in "video", "set" in "assets", "live" in "deliver", "mix" in "remix".
+# All other (longer / multi-word) keywords are distinctive enough for substring matching.
 WORD_BOUNDARY_KEYWORDS = {
-    "dj", "id", "set", "mix", "live", "drop", "bass", "edm", "b2b",
+    "dj", "id", "set", "mix", "live", "drop", "bass", "edm", "b2b", "tlv",
 }
 
 # Path for storing seen video IDs to avoid re-recommending across scans
@@ -89,108 +90,124 @@ SEEN_VIDEOS_FILE = os.path.join(_this_dir, "seen_videos.json")
 
 # Each keyword has a weight. Multiple matches stack (capped at 10).
 RELEVANCE_KEYWORDS = {
-    # Live performance (highest signal)
+    # Live performance (highest signal for this page)
     "live set": 4.0,
     "full set": 3.5,
     "b2b set": 4.0,
+    "סט לייב": 4.0,
+    "סט שלם": 3.5,
+    "סט מלא": 3.5,
     "recorded live": 2.5,
     "live at": 2.5,
     "playing live": 2.5,
 
     # DJ mentions (high signal)
     "dj": 2.5,
+    "דיג'יי": 2.5,
+    "דיגיי": 2.5,
+    "דיג׳יי": 2.5,
 
-    # Major festivals (high signal)
+    # Festival & Events (high signal)
     "festival": 2.5,
+    "פסטיבל": 2.5,
     "tomorrowland": 3.0,
     "ultra": 2.5,
     "edc": 2.5,
-    "burning man": 2.5,
-    "coachella": 2.5,
+    "burning man": 2.0,
+    "coachella": 2.0,
     "sonar": 2.0,
     "awakenings": 2.5,
     "time warp": 2.5,
     "dreamstate": 2.0,
     "creamfields": 2.0,
-    "electric forest": 2.0,
-    "mystery land": 2.0,
-    "defqon": 2.0,
-    "hard summer": 2.0,
-    "lollapalooza": 1.5,
-    "global gathering": 2.0,
-    "fabric": 1.5,
-    "berghain": 2.0,
-    "tresor": 1.5,
-
-    # Party culture (medium-high signal)
+    "מסיבה": 2.0,
     "party": 1.5,
     "rave": 2.0,
-    "club night": 2.0,
-    "after hours": 2.0,
-    "dance floor": 1.5,
-    "dancefloor": 1.5,
-    "nightlife": 1.5,
-    "night club": 1.5,
-    "nightclub": 1.5,
-    "crowd goes crazy": 3.0,
-    "crowd goes wild": 3.0,
-    "mosh pit": 2.0,
+    "אירוע": 1.5,
     "event": 1.0,
     "lineup": 2.0,
+    "לייןאפ": 2.0,
 
-    # Music production / track terms (medium signal)
+    # Music terms (medium signal)
     "track": 1.5,
+    "טראק": 1.5,
     "release": 1.5,
+    "רילייס": 1.5,
     "drop": 1.5,
+    "דרופ": 1.5,
     "remix": 1.5,
+    "רמיקס": 1.5,
     "set": 1.0,
+    "סט": 1.0,
     "mix": 1.0,
+    "מיקס": 1.0,
     "b2b": 2.0,
+    "הופעה": 2.0,
+    "live": 1.0,
+    "לייב": 1.0,
     "unreleased": 2.0,
     "id": 1.0,
     "bootleg": 1.5,
     "mashup": 1.5,
-    "flip": 1.0,
-    "edit": 1.0,
 
-    # Crowd & energy (lower signal, but relevant)
+    # Crowd / Energy (lower signal, but relevant)
     "crowd": 1.0,
+    "קהל": 1.0,
+    "אנרגיה": 1.0,
     "energy": 1.0,
     "vibe": 0.8,
     "vibes": 0.8,
+    "וייב": 0.8,
+    "מגה": 1.0,
     "crazy": 0.8,
-    "insane": 1.0,
-    "mental": 0.8,
-    "banger": 1.0,
-    "goes off": 1.5,
-    "goes hard": 1.5,
-    "absolute banger": 2.0,
+
+    # Israeli pride (high signal)
+    "ישראלי": 2.0,
+    "ישראל": 1.5,
+    "israeli": 2.0,
+    "israel": 1.5,
+    "גאווה": 2.5,
+    "pride": 1.5,
+    "represent": 1.5,
+    "תל אביב": 1.5,
+    "tel aviv": 1.5,
+    "tlv": 1.0,
 
     # Genres (low-med signal confirming niche)
     "techno": 1.0,
+    "טכנו": 1.0,
     "house": 1.0,
+    "האוס": 1.0,
     "trance": 1.5,
+    "טראנס": 1.5,
     "psytrance": 1.5,
     "progressive": 1.0,
     "melodic": 1.0,
     "bass": 0.8,
     "edm": 1.0,
     "electronic": 0.8,
+    "אלקטרוני": 0.8,
     "minimal": 0.8,
     "afro house": 1.0,
     "indie dance": 1.0,
-    "deep house": 1.0,
-    "organic house": 1.0,
-    "ambient": 0.5,
-    "drum and bass": 1.0,
-    "dnb": 1.0,
-    "dubstep": 0.8,
-    "hardstyle": 1.0,
-    "jungle": 0.8,
 }
 
-# Top-tier DJs — strong relevance signal (global)
-TOP_TIER_ARTISTS = {
+# Israeli DJs/artists (lowercase) - these make content HIGHLY relevant
+ISRAELI_ARTISTS = {
+    "borgore", "infected mushroom", "vini vici", "astrix", "ace ventura",
+    "blastoyz", "neelix", "guy j", "guy mantzur", "chaim",
+    "red axes", "autarkic", "canal", "malka tuti",
+    "adam ten", "dor danino", "ofeko", "roiko", "yamagucci",
+    "genish", "bido", "assaf michael", "itay gat", "dvirn",
+    "tal goldbaum", "verso", "mason mamedov", "meir briskman",
+    "hunterzezovski", "harushoval", "funkibelski", "avihai levi",
+    "rafael", "roei nimni", "ron illouz", "brunello",
+    "tetrakord", "anotr", "mellowcircus",
+    "solomun",  # Israeli-Bosnian, strongly associated with Israel scene
+}
+
+# Top-tier international DJs/artists — only these can pass without Israeli connection
+TOP_TIER_INTERNATIONAL = {
     "fisher", "john summit", "johnsummit", "anyma", "rufus du sol",
     "rufusdusol", "mochakk", "mahmut orhan", "prospa",
     "camelphat", "artbat", "tale of us", "amelie lens",
@@ -198,27 +215,26 @@ TOP_TIER_ARTISTS = {
     "disclosure", "bicep", "four tet", "jamie jones",
     "the martinez brothers", "marco carola",
     "adam beyer", "nina kraviz", "ben bohmer",
-    "black coffee", "keinemusik", "solomun",
-    "fisher", "chris lake", "line of thought", "sara landry",
-    "eats everything", "benga", "caribou", "romy",
-    "objekt", "dj koze", "modeselektor", "moderat",
-    "bonobo", "jon hopkins", "floating points", "polo & pan",
-    "rüfüs du sol", "lane 8", "kölsch", "stephan bodzin",
-    "richie hawtin", "plastikman", "claude von stroke",
-    "dirtybird", "hot since 82", "joseph capriati",
-    "loco dice", "pan-pot", "sasha", "john digweed",
-    "carl cox", "paul van dyk", "tiesto", "armin van buuren",
-    "david guetta", "martin garrix", "afrojack", "hardwell",
-    "nicky romero", "don diablo", "oliver heldens", "sam feldt",
-    "kygo", "diplo", "major lazer", "marshmello",
+    "black coffee", "keinemusik",
 }
 
-# Top-tier festivals — strong relevance signal (global)
+# Combined set for general detection
+KNOWN_ARTISTS = ISRAELI_ARTISTS | TOP_TIER_INTERNATIONAL
+
+# Keywords that signal Israeli connection
+ISRAELI_CONNECTION_KEYWORDS = {
+    "ישראלי", "ישראל", "israeli", "israel",
+    "תל אביב", "tel aviv", "tlv",
+    "גאווה", "pride", "represent",
+    "ירושלים", "jerusalem", "eilat", "אילת",
+    "haifa", "חיפה", "באר שבע", "beer sheva",
+}
+
+# Top-tier international festivals — can pass without Israeli connection
 TOP_TIER_FESTIVALS = {
     "tomorrowland", "ultra", "edc", "awakenings", "sonar",
     "time warp", "creamfields", "burning man", "coachella",
-    "dreamstate", "electric forest", "defqon", "lollapalooza",
-    "mystery land", "hard summer", "global gathering", "berghain",
+    "dreamstate",
 }
 
 
@@ -324,26 +340,31 @@ def remove_user_from_file(username: str) -> tuple:
 def score_relevance(video: dict, username: str) -> tuple:
     """
     Score how relevant a video is to Parties247's content style.
-    Returns (score 0-10, detected_category, matched_keywords, is_top_tier, is_festival).
-
-    is_top_tier: True if video involves a well-known global DJ/artist
-    is_festival: True if video is from a major international festival
+    Returns (score 0-10, detected_category, matched_keywords, is_israeli, is_top_tier).
+    
+    is_israeli: True if the video has an Israeli connection (Israeli artist,
+                Israeli keywords, Hebrew text about Israel, etc.)
+    is_top_tier: True if video involves a top-tier international artist/festival
+                 (can pass even without Israeli connection)
     """
     description = (video.get('description', '') or '').lower()
     title = (video.get('title', '') or '').lower()
     track = (video.get('track', '') or '').lower()
     artist = (video.get('artist', '') or '').lower()
-
+    
+    # Combine all text for keyword matching
     all_text = f"{description} {title} {track} {artist} {username}"
-
+    
     score = 0.0
     matched = []
+    is_israeli = False
     is_top_tier = False
-    is_festival = False
-
+    
     # 1. Keyword matching
     for keyword, weight in RELEVANCE_KEYWORDS.items():
         if keyword in WORD_BOUNDARY_KEYWORDS:
+            # Ambiguous short keywords: require whole-word match to avoid false positives
+            # e.g. "id" in "video", "set" in "assets", "live" in "deliver"
             if re.search(r'\b' + re.escape(keyword) + r'\b', all_text):
                 score += weight
                 matched.append(keyword)
@@ -351,82 +372,126 @@ def score_relevance(video: dict, username: str) -> tuple:
             if keyword in all_text:
                 score += weight
                 matched.append(keyword)
-
-    # 2. Top-tier artist detection
+    
+    # 2. Israeli connection detection
+    # Check if the username is an Israeli artist
     username_clean = username.replace("_", " ").replace(".", " ").lower()
-    for artist_name in TOP_TIER_ARTISTS:
+    for artist_name in ISRAELI_ARTISTS:
         if artist_name in all_text or artist_name in username_clean:
-            is_top_tier = True
-            score += 2.5
-            matched.append(f"🌍 {artist_name}")
+            is_israeli = True
+            score += 3.0  # Israeli artists get a strong boost
+            matched.append(f"🇮🇱 {artist_name}")
             break
-
-    # 3. Check hashtags for artist names and festival names
+    
+    # Check for Israeli connection keywords
+    if not is_israeli:
+        for kw in ISRAELI_CONNECTION_KEYWORDS:
+            if kw in all_text:
+                is_israeli = True
+                score += 2.0
+                matched.append(f"🇮🇱 {kw}")
+                break
+    
+    # Check hashtags for Israeli connection and artist names
     hashtags = video.get('tags', []) or []
     hashtag_text = ""
     if isinstance(hashtags, list):
         hashtag_text = " ".join(str(h).lower() for h in hashtags)
+        if not is_israeli:
+            for kw in ISRAELI_CONNECTION_KEYWORDS:
+                if kw in hashtag_text:
+                    is_israeli = True
+                    score += 1.5
+                    matched.append(f"🇮🇱#{kw}")
+                    break
+        # Also check hashtags for Israeli artist names (e.g. #borgore, #infectedmushroom)
+        if not is_israeli:
+            for artist_name in ISRAELI_ARTISTS:
+                if artist_name.replace(" ", "") in hashtag_text or artist_name in hashtag_text:
+                    is_israeli = True
+                    score += 2.5
+                    matched.append(f"🇮🇱 {artist_name}")
+                    break
 
-        if not is_top_tier:
-            for artist_name in TOP_TIER_ARTISTS:
+    # 3. Top-tier international detection (can pass without Israeli connection)
+    if not is_israeli:
+        for artist_name in TOP_TIER_INTERNATIONAL:
+            if artist_name in all_text or artist_name in username_clean:
+                is_top_tier = True
+                score += 2.5
+                matched.append(f"🌍 {artist_name}")
+                break
+        # Also check hashtags for top-tier international artists
+        if not is_top_tier and hashtag_text:
+            for artist_name in TOP_TIER_INTERNATIONAL:
                 if artist_name.replace(" ", "") in hashtag_text or artist_name in hashtag_text:
                     is_top_tier = True
                     score += 2.0
                     matched.append(f"🌍 {artist_name}")
                     break
-
-        for fest in TOP_TIER_FESTIVALS:
-            if fest in all_text or fest in hashtag_text:
-                is_festival = True
-                score += 2.0
-                matched.append(f"🎪 {fest}")
-                break
-
+        
+        if not is_top_tier:
+            for fest in TOP_TIER_FESTIVALS:
+                if fest in all_text or fest in hashtag_text:
+                    is_top_tier = True
+                    score += 2.0
+                    matched.append(f"🌍 {fest}")
+                    break
+    
     # 4. General hashtag keyword matching
     if hashtag_text:
         for keyword, weight in RELEVANCE_KEYWORDS.items():
             if keyword in hashtag_text and keyword not in matched:
                 score += weight * 0.5
                 matched.append(f"#{keyword}")
-
+    
     # Cap at 10
     score = min(score, 10.0)
-
+    
+    # Determine category
     category = _classify_category(all_text, matched)
-
-    return score, category, matched, is_top_tier, is_festival
+    
+    return score, category, matched, is_israeli, is_top_tier
 
 
 def _classify_category(text: str, matched_keywords: list) -> str:
     """Classify the video into a content category based on matched keywords."""
-    matched_set = set(k.lower().lstrip("#🎤🌍🎪 ") for k in matched_keywords)
-
-    if {"live set", "full set", "b2b set", "recorded live"} & matched_set:
+    matched_set = set(k.lower().lstrip("#🎤 ") for k in matched_keywords)
+    
+    # Check for live set (highest priority — best content for this page)
+    live_set_keywords = {"live set", "full set", "b2b set", "סט לייב", "סט שלם", "סט מלא", "recorded live"}
+    if live_set_keywords & matched_set:
         return "🎤 Live Set"
 
-    festival_keywords = {
-        "festival", "tomorrowland", "ultra", "edc", "awakenings", "sonar",
-        "time warp", "creamfields", "burning man", "coachella", "electric forest",
-        "defqon", "lollapalooza", "berghain",
-    }
+    # Check for Israeli pride content
+    israeli_keywords = {"ישראלי", "israeli", "גאווה", "pride", "represent", "ישראל", "israel"}
+    festival_keywords = {"festival", "פסטיבל", "tomorrowland", "ultra", "edc", "awakenings", "sonar", "time warp"}
+    if israeli_keywords & matched_set and festival_keywords & matched_set:
+        return "🇮🇱 Israeli Pride"
+
+    # Check for festival/event
     if festival_keywords & matched_set:
         return "🎪 Festival"
 
-    release_keywords = {"track", "release", "unreleased", "id", "remix", "bootleg", "mashup", "flip", "edit"}
+    # Check for new release
+    release_keywords = {"track", "טראק", "release", "רילייס", "unreleased", "id", "remix", "רמיקס", "bootleg", "mashup"}
     if release_keywords & matched_set:
         return "🎵 New Track"
 
-    party_keywords = {"party", "rave", "club night", "after hours", "dance floor", "dancefloor", "nightclub", "nightlife", "mosh pit", "crowd goes crazy", "crowd goes wild"}
+    # Check for party/club content
+    party_keywords = {"מסיבה", "party", "rave", "אירוע", "event", "crowd", "קהל"}
     if party_keywords & matched_set:
-        return "🎉 Party Clip"
+        return "🎧 Party Clip"
 
-    dj_keywords = {"dj", "set", "b2b", "mix", "live"}
+    # Check for DJ set
+    dj_keywords = {"dj", "דיג'יי", "set", "סט", "b2b", "הופעה", "live", "לייב"}
     if dj_keywords & matched_set:
         return "🎧 DJ Set"
-
+    
+    # Generic music content
     if matched_set:
         return "🔥 Music"
-
+    
     return "❓ Other"
 
 
@@ -443,10 +508,10 @@ def score_catchiness(video: dict, baseline_avg: float, upload_time=None) -> tupl
     likes = video.get('like_count', 0) or 0
     comments = video.get('comment_count', 0) or 0
     shares = video.get('repost_count', 0) or video.get('share_count', 0) or 0
-
+    
     total_engagement = likes + comments + shares
     engagement_rate = total_engagement / views if views > 0 else 0
-
+    
     details = {
         "views": views,
         "likes": likes,
@@ -454,17 +519,18 @@ def score_catchiness(video: dict, baseline_avg: float, upload_time=None) -> tupl
         "shares": shares,
         "engagement_rate": engagement_rate,
     }
-
+    
     score = 0.0
-
+    
     # 1. Engagement ratio vs baseline (0-4 pts)
     if baseline_avg > 0:
         ratio = engagement_rate / baseline_avg
         details["engagement_ratio"] = ratio
+        # 2x average = 4 points (linear, capped)
         score += min(ratio * 2, 4.0)
     else:
         details["engagement_ratio"] = 1.0
-
+    
     # 2. View velocity (0-2 pts)
     if upload_time:
         hours_since = max((datetime.now(timezone.utc) - upload_time).total_seconds() / 3600, 1)
@@ -478,12 +544,12 @@ def score_catchiness(video: dict, baseline_avg: float, upload_time=None) -> tupl
             score += 1.0
         elif velocity >= 50:
             score += 0.5
-
-    # 3. Share ratio (0-2 pts)
+    
+    # 3. Share ratio (0-2 pts) - shares are the strongest viral signal
     if views > 0:
         share_ratio = shares / views
         details["share_ratio"] = share_ratio
-        if share_ratio >= 0.01:
+        if share_ratio >= 0.01:  # 1% share rate is exceptional
             score += 2.0
         elif share_ratio >= 0.005:
             score += 1.5
@@ -491,8 +557,8 @@ def score_catchiness(video: dict, baseline_avg: float, upload_time=None) -> tupl
             score += 1.0
         elif share_ratio >= 0.001:
             score += 0.5
-
-    # 4. Absolute views (0-2 pts)
+    
+    # 4. Absolute views (0-2 pts) - raw popularity signal
     if views >= 500_000:
         score += 2.0
     elif views >= 100_000:
@@ -501,7 +567,7 @@ def score_catchiness(video: dict, baseline_avg: float, upload_time=None) -> tupl
         score += 1.0
     elif views >= 10_000:
         score += 0.5
-
+    
     score = min(score, 10.0)
     return score, details
 
@@ -513,22 +579,24 @@ def score_catchiness(video: dict, baseline_avg: float, upload_time=None) -> tupl
 def score_quality(video: dict) -> tuple:
     """
     Score the technical quality of a video.
+    Uses full metadata (requires extract_flat=False for detailed info).
     Returns (score 0-10, details_dict).
     """
     details = {}
     score = 0.0
-
+    
     # 1. Video resolution (0-3 pts)
     height = video.get('height') or 0
     width = video.get('width') or 0
-
+    
+    # Also check formats list if height not at top level
     if not height and video.get('formats'):
         for fmt in video['formats']:
             h = fmt.get('height') or 0
             if h > height:
                 height = h
                 width = fmt.get('width', 0)
-
+    
     details["resolution"] = f"{width}x{height}" if height else "unknown"
     if height >= 1080:
         score += 3.0
@@ -536,18 +604,20 @@ def score_quality(video: dict) -> tuple:
         score += 2.0
     elif height >= 480:
         score += 1.0
-
+    # < 480 = 0 pts (trash quality)
+    
     # 2. Duration sweet spot (0-3 pts)
     duration = video.get('duration') or 0
     details["duration"] = duration
     if 15 <= duration <= 90:
-        score += 3.0
+        score += 3.0   # Short clip sweet spot
     elif 90 < duration <= 300:
-        score += 2.5
+        score += 2.5   # Live set range — still excellent
     elif 10 <= duration <= 600:
-        score += 1.5
+        score += 1.5   # Acceptable
     elif duration > 0:
         score += 0.5
+    # else: 0 pts
 
     # 3. Has original/named sound (0-2 pts)
     track = video.get('track', '')
@@ -555,10 +625,10 @@ def score_quality(video: dict) -> tuple:
     details["track"] = track or "none"
     details["artist"] = artist or "none"
     if track and artist:
-        score += 2.0
+        score += 2.0  # Has identifiable music
     elif track or artist:
         score += 1.0
-
+    
     # 4. Has meaningful description (0-2 pts)
     description = video.get('description', '') or ''
     desc_len = len(description.strip())
@@ -569,6 +639,7 @@ def score_quality(video: dict) -> tuple:
         score += 1.0
 
     # 5. Promotional/overlay penalty (-3 to 0 pts)
+    # Heavy hashtag usage and promo phrases signal sticker-heavy/branded content
     import re as _re
     hashtag_count = len(_re.findall(r'#\w+', description))
     details["hashtag_count"] = hashtag_count
@@ -590,7 +661,7 @@ def score_quality(video: dict) -> tuple:
 
 
 # ============================================================
-# AI CLASSIFICATION (Gemini - top 5 only)
+# AI CLASSIFICATION (Gemini - top 3 only)
 # ============================================================
 
 def classify_with_ai(videos: list) -> list:
@@ -612,6 +683,7 @@ def classify_with_ai(videos: list) -> list:
         logger.warning(f"Could not initialize Gemini: {e}")
         return videos
 
+    # Build a single prompt with all 5 videos
     top_videos = videos[:5]
     video_descriptions = []
     for i, v in enumerate(top_videos):
@@ -627,27 +699,26 @@ def classify_with_ai(videos: list) -> list:
         )
 
     schema_entries = ",\n  ".join(
-        f'{{"video": {i+1}, "score": N, "reason": "brief reason", "best_pick": true/false}}'
+        f'{{"video": {i+1}, "score": N, "reason": "brief Hebrew reason", "best_pick": true/false}}'
         for i in range(len(top_videos))
     )
 
-    prompt = f"""You are an expert content curator for "Parties 24/7", a global viral party content page on TikTok and Instagram.
+    prompt = f"""You are an expert content curator for "Parties 24/7", an Israeli nightlife/DJ TikTok & Instagram page.
 
 The page posts:
-- Viral party and club moments from around the world
-- Live DJ sets and b2b performances at major festivals and clubs
-- Festival highlights (Tomorrowland, Ultra, EDC, Coachella, Burning Man, etc.)
-- Crowd energy and dance floor moments that went viral
-- Trending party culture, rave moments, and nightlife content
-- New track releases and drops from well-known DJs
+- New tracks and releases from Israeli DJs
+- Live DJ sets and b2b performances (highest value content)
+- Israeli DJs performing at big international festivals (Israeli pride)
+- Big international DJs (known in Israel) playing Israeli DJ tracks
+- Festival announcements and special events
+- Viral party/rave moments
 
 Rate each video 1-10 on how well it fits this page. Consider:
-- Would this content go viral on a general party/nightlife page?
-- High energy, exciting moments that appeal to a global party audience (ages 18-30)
-- Repost potential — would followers share this?
-- Prefer clean performance footage: live sets, crowd shots, stage moments, festival highlights
-- Penalize heavy text overlays, promotional stickers, reaction-cam splits, or POV-style content
-- No language or geographic bias — global party content from any country is welcome
+- Content relevance to the DJ/party scene
+- Whether it would interest Israeli nightlife fans ages 16-25
+- Repost potential (would followers engage with this?)
+- Prefer clean performance footage (live sets, crowd shots, stage moments)
+- Penalize videos with heavy text overlays, promotional stickers, reaction-cam splits, or POV-style content
 
 Return ONLY valid JSON, no markdown, no explanation:
 {{"videos": [
@@ -661,37 +732,40 @@ Here are the videos:
     try:
         logger.info(f"🧠 Asking Gemini to classify top {len(top_videos)} videos...")
         response = model.generate_content(prompt)
-
+        
         if not response or not response.text:
             logger.warning("Gemini returned empty response")
             return videos
-
+        
+        # Parse JSON response
         text = response.text.strip()
+        # Handle markdown code blocks
         if text.startswith("```"):
             text = text.split("\n", 1)[1] if "\n" in text else text[3:]
             text = text.rsplit("```", 1)[0]
-
+        
         result = json.loads(text)
         ai_videos = result.get("videos", [])
-
+        
         for ai_v in ai_videos:
             idx = ai_v.get("video", 0) - 1
             if 0 <= idx < len(videos):
                 videos[idx]["ai_score"] = ai_v.get("score", 5)
                 videos[idx]["ai_reason"] = ai_v.get("reason", "")
                 videos[idx]["ai_best_pick"] = ai_v.get("best_pick", False)
-
+                
+                # Blend AI score into final score (AI gets 15% influence on top candidates)
                 current_final = videos[idx].get("final_score", 0)
-                ai_boost = (ai_v.get("score", 5) / 10.0) * 1.5
+                ai_boost = (ai_v.get("score", 5) / 10.0) * 1.5  # 0-1.5 range
                 videos[idx]["final_score"] = current_final + ai_boost
-
+        
         logger.info("✅ Gemini classification complete")
-
+        
     except json.JSONDecodeError as e:
         logger.warning(f"Failed to parse Gemini response: {e}")
     except Exception as e:
         logger.warning(f"Gemini classification error: {e}")
-
+    
     return videos
 
 
@@ -707,13 +781,13 @@ def fetch_videos_yt_dlp(username: str, flat: bool = True) -> list:
     """
     import time as _time
     _time.sleep(random.uniform(1, 3))
-
+    
     try:
         import yt_dlp
     except ImportError:
         logger.error("yt-dlp not installed")
         return []
-
+    
     url = f"https://www.tiktok.com/@{username}"
     ydl_opts = {
         'quiet': True,
@@ -723,7 +797,7 @@ def fetch_videos_yt_dlp(username: str, flat: bool = True) -> list:
         'socket_timeout': 10,
         'retries': 3,
     }
-
+    
     if flat:
         ydl_opts['extract_flat'] = 'in_playlist'
 
@@ -747,14 +821,14 @@ def fetch_single_video_details(video_url: str) -> dict:
         import yt_dlp
     except ImportError:
         return {}
-
+    
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
         'skip_download': True,
         'socket_timeout': 10,
     }
-
+    
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             result = ydl.extract_info(video_url, download=False)
@@ -777,18 +851,18 @@ def process_user_phase1(username: str, cutoff_time) -> list:
     entries = fetch_videos_yt_dlp(username, flat=True)
     if not entries:
         return []
-
+    
     new_videos = []
     old_engagements = []
-
+    
     for entry in entries:
         ts = entry.get('timestamp')
         if not ts:
             continue
-
+        
         upload_time = datetime.fromtimestamp(ts, tz=timezone.utc)
         views = entry.get('view_count', 0) or 0
-
+        
         if views > 0:
             likes = entry.get('like_count', 0) or 0
             comments = entry.get('comment_count', 0) or 0
@@ -796,52 +870,66 @@ def process_user_phase1(username: str, cutoff_time) -> list:
             er = (likes + comments + shares) / views
         else:
             er = 0
-
+        
         if upload_time > cutoff_time:
             entry['_upload_time'] = upload_time
             new_videos.append(entry)
         else:
             old_engagements.append(er)
-
+    
     if not new_videos:
         return []
-
+    
+    # Use median instead of mean so a single viral outlier doesn't skew the baseline
     avg_baseline = statistics.median(old_engagements) if old_engagements else 0.01
     scored = []
-
+    
     for v in new_videos:
-        rel_score, category, keywords, is_top_tier, is_festival = score_relevance(v, username)
-
+        # Layer 1: Relevance (now returns israeli/top-tier flags)
+        rel_score, category, keywords, is_israeli, is_top_tier = score_relevance(v, username)
+        
+        # Skip videos with very low relevance
         if rel_score < MIN_RELEVANCE_SCORE:
             continue
-
+        
+        # Layer 2: Catchiness
         catch_score, catch_details = score_catchiness(v, avg_baseline, v.get('_upload_time'))
-
-        # Top-tier artist or festival content always passes; other content needs decent catchiness
-        if not is_top_tier and not is_festival and catch_score < 4.0:
+        
+        # ====== ISRAELI PRIORITY GATE ======
+        # Israeli and top-tier content always passes.
+        # Other content gets a score penalty (0.6×) instead of a hard block so
+        # truly exceptional viral content can still surface, while Israeli/top-tier
+        # content naturally ranks higher in the final list.
+        if not is_israeli and not is_top_tier and catch_score < 5.0:
+            # Very low catchiness AND not Israeli/top-tier → still skip (clear noise)
             continue
 
-        # Boost for top-tier artists and festivals; slight penalty for unrecognized content
-        if is_top_tier or is_festival:
-            content_bonus = 2.0
-            score_multiplier = 1.0
+        # Israeli content gets a final score boost; non-Israeli/non-top-tier gets penalised
+        if is_israeli:
+            israeli_bonus = 3.0  # Strong boost — Israeli DJs are the core content
+            non_israeli_penalty = 1.0
+        elif is_top_tier:
+            israeli_bonus = 0.0
+            non_israeli_penalty = 1.0
         else:
-            content_bonus = 0.0
-            score_multiplier = 0.75
+            israeli_bonus = 0.0
+            non_israeli_penalty = 0.6  # Score multiplier for unrelated content
 
-        # Live set bonus — best content type
+        # Live set bonus — best content type for this page
         live_set_bonus = 1.0 if category == "🎤 Live Set" else 0.0
 
-        # Quick quality pre-score from flat metadata
+        # Lightweight quality pre-score using fields available in flat mode.
+        # Duration is always present; description length is also available.
+        # This replaces the flat 5.0 placeholder so Phase 1 ranking is more accurate.
         duration = v.get('duration') or 0
         desc_len = len((v.get('description', '') or '').strip())
         quick_quality = 0.0
         if 15 <= duration <= 90:
-            quick_quality += 5.0
+            quick_quality += 5.0   # Short clip sweet spot
         elif 90 < duration <= 300:
-            quick_quality += 4.5
+            quick_quality += 4.5   # Live set range — excellent
         elif 10 <= duration <= 600:
-            quick_quality += 3.0
+            quick_quality += 3.0   # Acceptable
         elif duration > 0:
             quick_quality += 1.0
         if desc_len >= 50:
@@ -849,28 +937,29 @@ def process_user_phase1(username: str, cutoff_time) -> list:
         elif desc_len >= 10:
             quick_quality = min(quick_quality + 1.0, 10.0)
 
+        # Phase 1 score using quick quality estimate
         phase1_score = (
             (
                 rel_score * WEIGHT_RELEVANCE +
                 catch_score * WEIGHT_CATCHINESS +
                 quick_quality * WEIGHT_QUALITY
-            ) * score_multiplier +
-            content_bonus +
+            ) * non_israeli_penalty +
+            israeli_bonus +
             live_set_bonus
         )
 
         v['username'] = username
         v['relevance_score'] = rel_score
         v['catchiness_score'] = catch_score
-        v['quality_score'] = quick_quality
+        v['quality_score'] = quick_quality  # Updated by Phase 2 with real resolution data
         v['category'] = category
+        v['is_israeli'] = is_israeli
         v['is_top_tier'] = is_top_tier
-        v['is_festival'] = is_festival
-        v['matched_keywords'] = keywords[:5]
+        v['matched_keywords'] = keywords[:5]  # Top 5
         v['engagement_ratio'] = catch_details.get('engagement_ratio', 1.0)
         v['final_score'] = phase1_score
         scored.append(v)
-
+    
     return scored
 
 
@@ -880,48 +969,55 @@ def deep_scan_phase2(candidates: list, limit: int = 15) -> list:
     Fetches full video details and applies Layer 3 scoring.
     """
     top = candidates[:limit]
-
+    
     logger.info(f"Phase 2: Deep scanning {len(top)} top candidates...")
-
+    
     for v in top:
         username = v.get('username', '')
         video_id = v.get('id', '')
-
+        
         if not video_id:
             continue
-
+        
         video_url = f"https://www.tiktok.com/@{username}/video/{video_id}"
-
+        
         try:
             details = fetch_single_video_details(video_url)
             if details:
+                # Merge useful fields
                 for key in ['height', 'width', 'duration', 'formats', 'track', 'artist']:
                     if key in details:
                         v[key] = details[key]
-
+                
+                # Layer 3: Quality
                 qual_score, qual_details = score_quality(v)
                 v['quality_score'] = qual_score
                 v['quality_details'] = qual_details
-
-                if v.get('is_top_tier') or v.get('is_festival'):
-                    p2_bonus = 2.0
-                    p2_multiplier = 1.0
+                
+                # Recalculate final score with real quality, preserving Israeli/penalty logic
+                if v.get('is_israeli'):
+                    p2_bonus = 3.0  # Strong boost — Israeli DJs are the core content
+                    p2_penalty = 1.0
+                elif v.get('is_top_tier'):
+                    p2_bonus = 0.0
+                    p2_penalty = 1.0
                 else:
                     p2_bonus = 0.0
-                    p2_multiplier = 0.75
+                    p2_penalty = 0.6
                 p2_live_bonus = 1.0 if v.get('category') == "🎤 Live Set" else 0.0
                 v['final_score'] = (
                     (
                         v['relevance_score'] * WEIGHT_RELEVANCE +
                         v['catchiness_score'] * WEIGHT_CATCHINESS +
                         qual_score * WEIGHT_QUALITY
-                    ) * p2_multiplier +
+                    ) * p2_penalty +
                     p2_bonus +
                     p2_live_bonus
                 )
         except Exception as e:
             logger.error(f"Phase 2 error for {video_url}: {e}")
-
+    
+    # Re-sort by updated final score
     top.sort(key=lambda x: x.get('final_score', 0), reverse=True)
     return top
 
@@ -931,17 +1027,19 @@ def run_full_scan() -> list:
     Full scanning pipeline:
     Phase 1: Fast scan all users → Relevance + Catchiness
     Phase 2: Deep scan top 15 → Quality
-    Phase 3: AI classify top 5 → Final verdict
+    Phase 3: AI classify top 3 → Final verdict
     """
     users = get_target_users()
     if not users:
         return []
 
+    # Load previously seen video IDs to avoid re-recommending
     seen_videos = load_seen_videos()
 
     cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
     all_candidates = []
 
+    # ===== Phase 1: Fast parallel scan =====
     logger.info(f"Phase 1: Scanning {len(users)} users...")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
@@ -960,6 +1058,7 @@ def run_full_scan() -> list:
         logger.info("Phase 1: No relevant videos found.")
         return []
 
+    # Filter out videos already sent in a previous scan
     before_dedup = len(all_candidates)
     all_candidates = [v for v in all_candidates if str(v.get('id', '')) not in seen_videos]
     skipped = before_dedup - len(all_candidates)
@@ -970,17 +1069,22 @@ def run_full_scan() -> list:
         logger.info("Phase 1: All candidates already reported recently.")
         return []
 
+    # Sort by Phase 1 score
     all_candidates.sort(key=lambda x: x.get('final_score', 0), reverse=True)
     logger.info(f"Phase 1 complete: {len(all_candidates)} candidates found")
 
+    # ===== Phase 2: Deep scan top 15 =====
     top_candidates = deep_scan_phase2(all_candidates, limit=15)
     logger.info(f"Phase 2 complete: {len(top_candidates)} videos quality-checked")
 
+    # ===== Phase 3: AI classification of top 3 =====
     if len(top_candidates) >= 1:
         top_candidates = classify_with_ai(top_candidates)
+        # Re-sort after AI adjustment
         top_candidates.sort(key=lambda x: x.get('final_score', 0), reverse=True)
         logger.info("Phase 3 complete: AI classification done")
 
+    # Record reported videos so they won't be re-sent in subsequent scans
     now_iso = datetime.now(timezone.utc).isoformat()
     for v in top_candidates:
         vid_id = str(v.get('id', ''))
@@ -999,10 +1103,10 @@ def format_scan_results(videos: list, limit: int = 10) -> str:
     """Format scan results as a rich Telegram message."""
     if not videos:
         return "📭 No relevant trending videos found in the last 48 hours."
-
+    
     top = videos[:limit]
     lines = [f"🔥 *Top {len(top)} Trending Videos* 🔥\n"]
-
+    
     for i, v in enumerate(top, 1):
         username = v.get('username', '?')
         video_id = v.get('id', '')
@@ -1015,37 +1119,40 @@ def format_scan_results(videos: list, limit: int = 10) -> str:
         ratio = v.get('engagement_ratio', 0)
         url = f"https://www.tiktok.com/@{username}/video/{video_id}"
         desc = (v.get('description', '') or '')[:80]
-
-        # Badge for top-tier artist or festival
-        badge = ""
-        if v.get('is_top_tier'):
-            badge = " 🌍"
-        elif v.get('is_festival'):
-            badge = " 🎪"
-
+        
+        # Connection badge
+        connection = ""
+        if v.get('is_israeli'):
+            connection = " 🇮🇱"
+        elif v.get('is_top_tier'):
+            connection = " 🌍"
+        
+        # AI badge
         ai_badge = ""
         if v.get('ai_best_pick'):
             ai_badge = " 🤖✨"
         elif v.get('ai_score'):
             ai_badge = f" 🤖{v['ai_score']}/10"
-
+        
+        # Score breakdown
         score_bar = f"R:{rel_score:.0f} C:{catch_score:.0f} Q:{qual_score:.0f}"
-
+        
         lines.append(
-            f"{i}.{badge} {category} *@{username}*{ai_badge}\n"
+            f"{i}.{connection} {category} *@{username}*{ai_badge}\n"
             f"   📊 Score: {final_score:.1f} ({score_bar})\n"
             f"   📈 {ratio:.1f}x avg | 👁 {views:,} views\n"
             f"   {desc}\n"
             f"   [Watch]({url})\n"
         )
-
+        
+        # Show AI reason if available
         ai_reason = v.get('ai_reason', '')
         if ai_reason:
             lines.append(f"   💬 _{ai_reason}_\n")
-
+    
     total_users = len(get_target_users())
     lines.append(f"\n📊 Scanned {total_users} users | {len(videos)} relevant videos found")
-
+    
     return "\n".join(lines)
 
 
@@ -1096,6 +1203,7 @@ async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         results = await asyncio.to_thread(run_full_scan)
         message = format_scan_results(results)
 
+        # Split long messages
         if len(message) > 4000:
             parts = [message[i:i+4000] for i in range(0, len(message), 4000)]
             for part in parts:
@@ -1181,7 +1289,7 @@ async def trends_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         "/trendshelp - Show this help\n\n"
         "*How it works:*\n"
         "1️⃣ Scans all users for new videos\n"
-        "2️⃣ Scores relevance (global party/DJ content)\n"
+        "2️⃣ Scores relevance (DJ/party content)\n"
         "3️⃣ Checks engagement & virality\n"
         "4️⃣ Deep quality check on top 15\n"
         "5️⃣ AI picks the best from top 5\n\n"
@@ -1251,7 +1359,7 @@ async def setup_trend_scanner(application: Application):
     Called by the main parties247 bot during initialization.
     """
     print("=" * 50)
-    print("🔍 Setting up Smart Trend Scanner (Global Viral Parties)")
+    print("🔍 Setting up Smart Trend Scanner")
     print("=" * 50)
 
     application.add_handler(CommandHandler("scan", scan_command))
@@ -1275,4 +1383,4 @@ async def setup_trend_scanner(application: Application):
     print(f"  📄 Users file: {USERS_FILE}")
     print(f"  🧠 AI: Gemini {'available' if os.getenv('GEMINI_API_KEY') else 'not configured'}")
     print(f"  🎯 Min relevance: {MIN_RELEVANCE_SCORE}/10")
-    print("🔍 Smart Trend Scanner (Global Viral Parties) ready!")
+    print("🔍 Smart Trend Scanner ready!")
