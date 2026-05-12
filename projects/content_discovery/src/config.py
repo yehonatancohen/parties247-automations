@@ -64,6 +64,30 @@ class Config:
     HIT_THRESHOLD = float(os.getenv("HIT_THRESHOLD", "1.5"))  # 1.5x baseline = potential hit
     VIDEO_AGE_HOURS = int(os.getenv("VIDEO_AGE_HOURS", "48"))  # Check videos from last 24h
     BASELINE_POSTS_COUNT = int(os.getenv("BASELINE_POSTS_COUNT", "20"))  # Posts to calculate baseline
+
+    # ── Global Viral Scanner ──────────────────────────────────────────────
+    # Enable/disable global hashtag-based discovery
+    GLOBAL_SCAN_ENABLED = os.getenv("GLOBAL_SCAN_ENABLED", "true").lower() == "true"
+    # Minimum view count for a video to qualify as globally viral
+    GLOBAL_MIN_VIEWS = int(os.getenv("GLOBAL_MIN_VIEWS", "50000"))
+    # How many global picks to include in the daily report
+    GLOBAL_TOP_N = int(os.getenv("GLOBAL_TOP_N", "10"))
+    # Max hashtags to scan per run (controls rate limiting)
+    GLOBAL_MAX_HASHTAGS_PER_RUN = int(os.getenv("GLOBAL_MAX_HASHTAGS_PER_RUN", "15"))
+    # Ordered list of TikTok hashtags to scan (without #)
+    GLOBAL_SCAN_HASHTAGS = [
+        # ── Israeli scene (highest priority) ────────────────────────────
+        "partyisrael", "telavivnightlife", "israelrave", "israelparty",
+        # ── Generic party / nightlife ────────────────────────────────────
+        "party", "rave", "nightlife", "clubbing", "afterparty",
+        # ── Electronic genres ────────────────────────────────────────────
+        "techno", "housemusic", "trance", "psytrance", "edm",
+        # ── Culture / events ─────────────────────────────────────────────
+        "djset", "festivalseason", "raveculture",
+        # ── Hebrew hashtags ──────────────────────────────────────────────
+        "מסיבה", "טראנס", "פסטיבל",
+    ]
+    # ─────────────────────────────────────────────────────────────────────
     
     # Paths
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))

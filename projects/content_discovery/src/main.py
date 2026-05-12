@@ -37,6 +37,8 @@ from services.instagram_scraper import InstagramScraper
 from services.tiktok_scraper import TikTokScraper
 from services.media_scraper import MediaScraper
 from services.follow_suggester import FollowSuggester
+from services.global_scanner import GlobalScanner
+
 
 # Ensure directories exist
 Config.ensure_dirs()
@@ -47,6 +49,8 @@ instagram_scraper = InstagramScraper()
 tiktok_scraper = TikTokScraper()
 media_scraper = MediaScraper()
 follow_suggester = FollowSuggester()
+global_scanner = GlobalScanner()
+
 
 
 def is_user_allowed(user_id: int) -> bool:
@@ -113,9 +117,12 @@ async def cd_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🕐 Current time: {now.strftime('%H:%M %Z')}\n"
         f"📅 Next report: {Config.DAILY_REPORT_HOUR}:00\n"
         f"📊 Hit threshold: {Config.HIT_THRESHOLD}x baseline\n"
-        f"⏰ Video age limit: {Config.VIDEO_AGE_HOURS}h",
+        f"⏰ Video age limit: {Config.VIDEO_AGE_HOURS}h\n"
+        f"🌍 Global scan: {'enabled' if Config.GLOBAL_SCAN_ENABLED else 'disabled'} "
+        f"({Config.GLOBAL_MAX_HASHTAGS_PER_RUN} hashtags, min {Config.GLOBAL_MIN_VIEWS:,} views)",
         parse_mode="Markdown"
     )
+
 
 
 async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -324,6 +331,24 @@ async def run_discovery_scan() -> DailyReport:
     finally:
         await media_scraper.close()
 
+    # ===== Global Viral Scan =====
+    try:
+        print("🌍 Scanning global hashtags for viral party content...")
+        global_vids = await global_scanner.scan_trending_hashtags()
+        # Exclude any accounts already in the following lists
+        all_following_usernames = (
+            current_following.get("tiktok", set())
+            | current_following.get("instagram", set())
+        )
+        report.global_discoveries = [
+            v for v in global_vids
+            if v.author_username not in all_following_usernames
+        ]
+        print(f"🌍 Global scan: {len(report.global_discoveries)} viral party videos discovered")
+    except Exception as e:
+        report.errors.append(f"Global scan error: {str(e)}")
+        print(f"❌ Global scan error: {e}")
+
     # ===== Process Results =====
     report.potential_hits = [v for v in all_videos if v.is_potential_hit]
     report.other_videos = [v for v in all_videos if not v.is_potential_hit]
@@ -336,8 +361,9 @@ async def run_discovery_scan() -> DailyReport:
     except Exception as e:
         report.errors.append(f"Suggestions error: {str(e)}")
 
-    print(f"✅ Scan complete! Found {len(report.potential_hits)} potential hits")
+    print(f"✅ Scan complete! Found {len(report.potential_hits)} potential hits, {len(report.global_discoveries)} global discoveries")
     return report
+
 
 
 def format_report_message(report: DailyReport) -> str:
@@ -350,16 +376,17 @@ def format_report_message(report: DailyReport) -> str:
 
     stats = report.get_summary_stats()
     lines.append(f"📊 *Summary:*")
-    lines.append(f"• Videos scanned: {stats['total_videos_scanned']}")
+    lines.append(f"• Videos scanned (following): {stats['total_videos_scanned']}")
     lines.append(f"• Potential hits: {stats['potential_hits_count']}")
+    lines.append(f"• 🌍 Global discoveries: {stats['global_discoveries_count']}")
     lines.append(f"• Media articles: {stats['media_articles_count']}")
     lines.append(f"• New followings: {stats['new_followings_count']}")
     lines.append("")
 
     if report.potential_hits:
-        lines.append("🔥 *POTENTIAL HITS:*")
+        lines.append("🔥 *POTENTIAL HITS (from following):*")
         for i, video in enumerate(report.potential_hits[:10], 1):
-            emoji = "🎵" if video.category == "release" else "🎪" if video.category == "festival" else "🔥"
+            emoji = "🎵" if video.category == "release" else "🎤" if video.category == "israeli_dj" else "🎪" if video.category == "festival" else "🔥"
             lines.append(
                 f"\n{i}. {emoji} @{video.author_username} ({video.platform})\n"
                 f"   Score: {video.hit_score:.1f}x | {video.views:,} views\n"
@@ -368,7 +395,39 @@ def format_report_message(report: DailyReport) -> str:
             )
         lines.append("")
     else:
-        lines.append("📭 No potential hits found today.")
+        lines.append("📭 No potential hits from following today.")
+        lines.append("")
+
+    if report.global_discoveries:
+        lines.append("🌍 *GLOBAL VIRAL DISCOVERIES:*")
+        for i, video in enumerate(report.global_discoveries[:10], 1):
+            cat_emoji = {
+                "psytrance": "🌀", "techno": "⚡", "house": "🏠",
+                "festival": "🎪", "rave": "🔥", "release": "🎵",
+                "israeli_scene": "🇮🇱",
+            }.get(video.category, "🌍")
+
+            # Compact view count
+            if video.views >= 1_000_000:
+                views_str = f"{video.views / 1_000_000:.1f}M"
+            elif video.views >= 1_000:
+                views_str = f"{video.views / 1_000:.0f}K"
+            else:
+                views_str = str(video.views)
+
+            eng_rate = 0.0
+            if video.views > 0:
+                eng_rate = (video.likes + video.comments + video.shares) / video.views * 100
+
+            top_tags = " ".join(f"#{t}" for t in (video.hashtags or [])[:4])
+
+            lines.append(
+                f"\n{i}. {cat_emoji} @{video.author_username}\n"
+                f"   📈 {views_str} views | {eng_rate:.1f}% engagement\n"
+                f"   🏷️ {video.category} | Score: {video.virality_score:.2f}\n"
+                + (f"   {top_tags}\n" if top_tags else "")
+                + f"   [Watch]({video.video_url})"
+            )
         lines.append("")
 
     if report.media_articles:
@@ -394,6 +453,7 @@ def format_report_message(report: DailyReport) -> str:
         lines.append(f"⚠️ {len(report.errors)} errors occurred during scan.")
 
     return "\n".join(lines)
+
 
 
 # ============================================================

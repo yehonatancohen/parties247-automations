@@ -35,6 +35,11 @@ class VideoCandidate:
     caption: str = ""
     category: str = "unknown"
     hashtags: List[str] = field(default_factory=list)
+
+    # Discovery metadata
+    source: str = "following"  # "following" | "global"
+    virality_score: float = 0.0  # Composite score used for global ranking
+
     
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -56,8 +61,11 @@ class VideoCandidate:
             "is_potential_hit": self.is_potential_hit,
             "caption": self.caption,
             "category": self.category,
-            "hashtags": self.hashtags
+            "hashtags": self.hashtags,
+            "source": self.source,
+            "virality_score": self.virality_score,
         }
+
     
     @classmethod
     def from_dict(cls, data: dict) -> "VideoCandidate":
@@ -84,8 +92,11 @@ class VideoCandidate:
             is_potential_hit=data.get("is_potential_hit", False),
             caption=data.get("caption", ""),
             category=data.get("category", "unknown"),
-            hashtags=data.get("hashtags", [])
+            hashtags=data.get("hashtags", []),
+            source=data.get("source", "following"),
+            virality_score=data.get("virality_score", 0.0),
         )
+
 
 
 @dataclass
@@ -136,29 +147,35 @@ class DailyReport:
     generated_at: datetime
     potential_hits: List[VideoCandidate] = field(default_factory=list)
     other_videos: List[VideoCandidate] = field(default_factory=list)
+    global_discoveries: List[VideoCandidate] = field(default_factory=list)  # From global hashtag scan
     media_articles: List[MediaArticle] = field(default_factory=list)
     follow_suggestions: List[FollowSuggestion] = field(default_factory=list)
     new_followings_detected: List[str] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
+
     
     def to_dict(self) -> dict:
         return {
             "generated_at": self.generated_at.isoformat(),
             "potential_hits": [v.to_dict() for v in self.potential_hits],
             "other_videos": [v.to_dict() for v in self.other_videos],
+            "global_discoveries": [v.to_dict() for v in self.global_discoveries],
             "media_articles": [a.to_dict() for a in self.media_articles],
             "follow_suggestions": [s.to_dict() for s in self.follow_suggestions],
             "new_followings_detected": self.new_followings_detected,
             "errors": self.errors
         }
+
     
     def get_summary_stats(self) -> dict:
         """Get summary statistics for the report."""
         return {
             "total_videos_scanned": len(self.potential_hits) + len(self.other_videos),
             "potential_hits_count": len(self.potential_hits),
+            "global_discoveries_count": len(self.global_discoveries),
             "media_articles_count": len(self.media_articles),
             "follow_suggestions_count": len(self.follow_suggestions),
             "new_followings_count": len(self.new_followings_detected),
             "errors_count": len(self.errors)
         }
+

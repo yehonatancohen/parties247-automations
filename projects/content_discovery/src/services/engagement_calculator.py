@@ -4,9 +4,11 @@ Engagement Rate Calculator for Content Discovery Bot.
 Calculates engagement rates and identifies potential viral content.
 """
 
+import math
 import re
 from typing import List, Optional
 from config import Config
+
 
 
 class EngagementCalculator:
@@ -119,23 +121,23 @@ class EngagementCalculator:
     def categorize_video(self, caption: str, hashtags: List[str] = None) -> str:
         """
         Categorize video based on content analysis.
-        
+
         Args:
             caption: Video caption/description
             hashtags: List of hashtags
-        
+
         Returns:
             Category string
         """
         text = caption.lower()
         if hashtags:
             text += " " + " ".join(h.lower() for h in hashtags)
-        
+
         # Check for Israeli DJs
         for dj in self.israeli_djs:
             if dj in text:
                 return "israeli_dj"
-        
+
         # Check category keywords
         for category, keywords in self.category_keywords.items():
             if category == "israeli_dj":
@@ -143,8 +145,95 @@ class EngagementCalculator:
             for keyword in keywords:
                 if keyword.lower() in text:
                     return category
-        
+
+        # Extended party sub-genre detection
+        genre_signals = {
+            "psytrance": ["psytrance", "psy trance", "טראנס", "psychedelic trance", "full on", "darkpsy"],
+            "techno":    ["techno", "industrial", "gabber", "hard techno"],
+            "house":     ["house music", "deep house", "tech house", "afro house"],
+            "rave":      ["rave", "underground", "רייב", "free party", "squat party"],
+            "festival":  ["פסטיבל", "festival", "outdoor", "camping"],
+            "viral":     ["viral", "fail", "funny", "מטורף", "crazy", "insane"],
+        }
+        for category, keywords in genre_signals.items():
+            if any(kw in text for kw in keywords):
+                return category
+
         return "general"
+
+    def calculate_virality_score(
+        self,
+        views: int,
+        likes: int,
+        comments: int,
+        shares: int = 0,
+        posted_at=None,
+        caption: str = "",
+        hashtags: List[str] = None,
+    ) -> float:
+        """
+        Composite virality score in [0, 1] for global (no-baseline) content.
+
+        Components:
+            engagement_rate (30%) — interaction ratio vs views
+            reach_score     (30%) — log-scaled view count
+            relevance_score (25%) — party keyword density
+            velocity_score  (15%) — views per hour since upload
+
+        Args:
+            views:     Number of views
+            likes:     Number of likes
+            comments:  Number of comments
+            shares:    Number of shares
+            posted_at: datetime of upload (timezone-aware preferred)
+            caption:   Video caption/description text
+            hashtags:  List of hashtag strings
+
+        Returns:
+            Float in [0, 1]; higher is more viral and more party-relevant.
+        """
+        from datetime import datetime, timezone
+
+        party_keywords = [
+            "party", "rave", "festival", "nightlife", "club", "clubbing",
+            "afterparty", "techno", "trance", "psytrance", "housemusic",
+            "edm", "dj", "electronic", "raveculture", "festivalseason",
+            "מסיבה", "טראנס", "פסטיבל", "מועדון", "דיג'יי", "רייב",
+            "israel", "telaviv", "ישראל",
+        ]
+
+        # 1. Engagement rate (cap at 30% = extremely high)
+        total_eng = likes + comments + shares
+        eng_rate = (total_eng / views) if views > 0 else 0.0
+        engagement_score = min(eng_rate / 0.30, 1.0)
+
+        # 2. Reach (log scale: 0 at 1 view → 1 at 10M views)
+        reach_score = min(math.log10(views) / 7.0, 1.0) if views > 0 else 0.0
+
+        # 3. Party relevance keyword density
+        text = (caption + " " + " ".join(hashtags or [])).lower()
+        matched = sum(1 for kw in party_keywords if kw in text)
+        relevance_score = min(matched / 5.0, 1.0)
+
+        # 4. Velocity (views/hour; saturates at 50K/h)
+        velocity_score = 0.0
+        if posted_at:
+            now = datetime.now(timezone.utc)
+            # Handle naive datetimes gracefully
+            if posted_at.tzinfo is None:
+                posted_at = posted_at.replace(tzinfo=timezone.utc)
+            hours_live = max((now - posted_at).total_seconds() / 3600, 0.5)
+            views_per_hour = views / hours_live
+            velocity_score = min(views_per_hour / 50_000, 1.0)
+
+        score = (
+            0.30 * engagement_score
+            + 0.30 * reach_score
+            + 0.25 * relevance_score
+            + 0.15 * velocity_score
+        )
+        return round(score, 4)
+
     
     def analyze_video(
         self,
