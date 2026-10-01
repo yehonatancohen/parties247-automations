@@ -103,6 +103,7 @@ def summary(job: dict) -> dict:
         "body": job.get("body"),
         "caption": job.get("caption"),
         "layout": job.get("layout"),
+        "kind": job.get("kind", "standard"),
     }
     if job.get("warnings"):
         out["warnings"] = job["warnings"]
@@ -199,12 +200,14 @@ def list_inbox() -> list[dict]:
 
 def submit_job(source: str, title: str | None = None, body: str | None = None,
                caption: str | None = None, layout: str = "lower",
-               trusted: bool = False, background: bool = True) -> str:
+               trusted: bool = False, background: bool = True, kind: str = "standard") -> str:
     """
     Create a job and start it. Returns the job id immediately when background=True
     (poll get_job); with background=False it blocks until the job finishes.
     """
     Config.ensure_dirs()
+    if kind not in ("standard", "promo"):
+        raise ValueError("kind must be 'standard' or 'promo'.")
     if isinstance(source, str) and source.startswith("inbox:"):
         source = os.path.join(Config.INBOX_DIR, os.path.basename(source[len("inbox:"):]))
     _validate(source, title, body, layout, trusted)
@@ -220,6 +223,7 @@ def submit_job(source: str, title: str | None = None, body: str | None = None,
         "body": (body or "").strip() or None,
         "caption": (caption or "").strip() or None,
         "layout": layout,
+        "kind": kind,
         "preview_token": secrets.token_urlsafe(16),
         "warnings": [],
     }
@@ -289,7 +293,7 @@ def _run(job: dict):
             _log(f"[WARN] AI caption failed, using title/body: {e}")
             job["caption"] = "\n\n".join(p for p in (job["title"], job["body"]) if p)
             job["warnings"].append("Caption fell back to title+body (AI caption unavailable).")
-    job["caption"] = finalize_caption(job["caption"])
+    job["caption"] = finalize_caption(job["caption"], promo=job.get("kind") == "promo")
     _save(job)
 
     # 3. Render

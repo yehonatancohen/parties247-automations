@@ -67,3 +67,44 @@ def test_soft_tips_do_not_block():
 def test_guide_mentions_the_key_rules():
     for needle in ("עובדות קודם", "כותרת", "אימוג", "לא להשתמש בקלישאות"):
         assert needle in copy_style.GUIDE
+
+
+# ---------------------------------------------------------------- promo mode
+
+PROMO_OK = ("DJ דוגמה באשדוד", "שישי 9.10, מצודת-ים",
+            "אחרי חודשים בחו\"ל, DJ דוגמה חוזר לנגן על חוף הים. נותרו כרטיסים אחרונים.\n"
+            "ביום שישי הקרוב (9.10) במצודת-ים באשדוד, עם אמנים נוספים.\n"
+            "רוצים פרטים? הגיבו ״אשדוד״ ונשלח לכם הכל בפרטי 🏖️")
+
+
+def test_promo_example_passes():
+    r = copy_style.lint(*PROMO_OK, kind="promo", cta_keyword="אשדוד")
+    assert r["problems"] == [] and r["tips"] == [], r
+
+
+def test_promo_needs_a_date_and_the_keyword():
+    t, b, c = PROMO_OK
+    no_date = c.replace("(9.10) ", "")
+    assert any("when" in p for p in copy_style.lint(t, "בים", no_date, "promo", "אשדוד")["problems"])
+    no_kw = c.replace("הגיבו ״אשדוד״", "כתבו לנו")
+    assert any("keyword" in p for p in copy_style.lint(t, b, no_kw, "promo", "אשדוד")["problems"])
+
+
+def test_promo_still_rejects_cliches_and_standard_mode_is_unchanged():
+    t, b, c = PROMO_OK
+    bad = c.replace("חוזר לנגן", "מגיע לאירוע מטורף")
+    assert any("cliché" in p for p in copy_style.lint(t, b, bad, "promo", "אשדוד")["problems"])
+    # a plain post without a date is fine in standard mode
+    assert copy_style.lint("t", "b", "שאלה? #a")["problems"] == []
+
+
+def test_promo_has_no_disclaimer_and_standard_does():
+    from services.captions import DISCLAIMER
+    assert finalize_caption("טקסט", promo=True) == "טקסט"
+    assert DISCLAIMER in finalize_caption("טקסט")
+
+
+def test_promo_without_keyword_only_gets_a_tip():
+    t, b, c = PROMO_OK
+    r = copy_style.lint(t, b, c.replace("הגיבו ״אשדוד״ ונשלח לכם הכל בפרטי", "פרטים בביו"), "promo", None)
+    assert r["problems"] == [] and any("call to action" in x for x in r["tips"])

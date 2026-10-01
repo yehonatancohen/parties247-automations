@@ -48,6 +48,32 @@ GUIDE = """\
    כיתוב: "ב-10.9 זה קורה! פסטיבל SOL & SOM חוזר🤍"
 """
 
+PROMO_GUIDE = """
+קידום בתשלום (kind="promo")
+===========================
+פוסט שמקדם אירוע, פסטיבל או מסיבה בשביל לקוח. אותו קול ישיר, אבל בנוי כמו הודעה: עובדות, ואז הנעה לפעולה.
+בקשת הלקוח מגיעה בדרך כלל במשפט אחד ("הדיג'יי X מגיע לפסטיבל Y"). חלץ ממנה את הפרטים, ואם חסר משהו חיוני
+(תאריך, מקום, שמות) שאל את המשתמש שאלה אחת קצרה. אסור להמציא.
+
+מבנה הכיתוב (3 חלקים, בלי האשטגים ובלי הבהרה משפטית):
+  1. פתיחה: למה זה שווה עצירה, עובדה אחת מהבריף. חזרה אחרי הפסקה, הופעה חד-פעמית, כרטיסים אחרונים,
+     כניסה חינם עד שעה מסוימת, שם גדול באירוע.
+  2. הפרטים: יום ותאריך (למשל "ביום שישי הקרוב (9.10)"), מי מופיע, איפה (מקום ועיר). מחיר או שעה אם יש.
+  3. הנעה לפעולה, שורה אחת. אם יש אוטומציה להודעות בפרטי: הגיבו ״מילת-קוד״ ונשלח לכם הכל בפרטי.
+     אם אין, כתבו לפרטים וכרטיסים בלינק שבביו. מילת הקוד היא שם האמן או העיר, מילה אחת.
+
+על השלט: כותרת = שם האמן / האירוע (2-4 מילים). גוף = היום, התאריך והמקום ("שישי 9.10, אשדוד").
+אימוג'י אחד לכל היותר, בסוף. אותם כללי קלישאות כמו תמיד.
+
+דוגמה (בנויה מבריף מדומה):
+   בריף: DJ דוגמה, אירוע חוף, אשדוד, שישי 9.10, כרטיסים אחרונים, מילת קוד "אשדוד".
+   כותרת: DJ דוגמה באשדוד
+   גוף:   שישי 9.10, מצודת-ים
+   כיתוב: "אחרי חודשים בחו"ל, DJ דוגמה חוזר לנגן על חוף הים. נותרו כרטיסים אחרונים.
+           ביום שישי הקרוב (9.10) במצודת-ים באשדוד, עם אמנים נוספים.
+           רוצים פרטים? הגיבו ״אשדוד״ ונשלח לכם הכל בפרטי 🏖️"
+"""
+
 BANNED = [
     "אנרגיה מטורפת", "אנרגיה שטרם נראתה", "שטרם נראתה", "לא תאמינו", "חייבים לראות", "הלילה הכי חם",
     "בלתי נשכח", "מטורף", "וואו וואו", "עוד לא ראיתם", "עוד לא ראית", "שובר את האינטרנט", "הכי שווה",
@@ -77,7 +103,8 @@ def _strip_caption(caption: str) -> tuple[str, int]:
     return "\n".join(kept).strip(), tags
 
 
-def lint(title: str | None, body: str | None, caption: str | None) -> dict:
+def lint(title: str | None, body: str | None, caption: str | None,
+         kind: str = "standard", cta_keyword: str | None = None) -> dict:
     """
     Returns {'problems': [...], 'tips': [...]}. 'problems' must be fixed before rendering;
     'tips' are softer style notes.
@@ -115,9 +142,34 @@ def lint(title: str | None, body: str | None, caption: str | None) -> dict:
         tips.append("Title is long for the sign: 2-4 words works best.")
     if len(body) > 90:
         tips.append("Body is long: one short line with a concrete fact.")
-    if tag_count == 0:
+    if kind == "promo":
+        extra = lint_promo(title, body, caption, cta_keyword)
+        problems += extra["problems"]
+        tips += extra["tips"]
+    elif tag_count == 0:
         tips.append("Add a final line of 3-5 relevant hashtags.")
     elif tag_count > 8:
         tips.append("Too many hashtags: 3-5 relevant ones.")
 
+    return {"problems": problems, "tips": tips}
+
+
+_QUOTES = '״"\'“”'
+_DATE = re.compile(r"\d{1,2}[./]\d{1,2}")
+
+
+def lint_promo(title: str, body: str, caption: str, cta_keyword: str | None) -> dict:
+    """Extra checks for paid promotion posts: they must carry the facts a viewer needs to act."""
+    problems, tips = [], []
+    if not (_DATE.search(caption) or _DATE.search(body)):
+        problems.append("A promo must say when: include the date (for example 9.10) and the weekday.")
+    if cta_keyword:
+        kw = cta_keyword.strip()
+        if not re.search(f"[{_QUOTES}]{re.escape(kw)}[{_QUOTES}]", caption):
+            problems.append(f"The call to action must quote the keyword: הגיבו ״{kw}״ ...")
+    else:
+        tips.append("No cta_keyword: end with a clear call to action (for example details and tickets via the "
+                    "link in the bio).")
+    if re.search(r"#\w+", caption):
+        tips.append("Promos usually go without hashtags.")
     return {"problems": problems, "tips": tips}

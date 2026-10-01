@@ -10,12 +10,14 @@ DISCLAIMER = (
 SEPARATOR = "\n-\n"
 
 
-def finalize_caption(caption: str) -> str:
+def finalize_caption(caption: str, promo: bool = False) -> str:
     """
     Guarantee the legal disclaimer is present exactly once, inserted before a trailing
     hashtag line when there is one. The calling model never has to copy it.
     """
     caption = (caption or "").strip()
+    if promo:                       # paid promotion: the content is ours to use, no source disclaimer
+        return caption
     if DISCLAIMER in caption:
         return caption
 

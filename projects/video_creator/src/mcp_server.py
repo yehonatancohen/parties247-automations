@@ -48,6 +48,12 @@ Workflow:
    default "main" is the real page. If no code is needed, call publish_video(job_id) directly.
    Never guess a code; after a wrong code ask the user again.
 
+Paid promotions (an artist coming to a festival, a party, an event for a client): use kind="promo".
+Call get_copy_guide("promo") and collect the brief from the user's message: artist(s), event, venue and
+city, weekday and date, price or urgency, and the keyword for the call to action. If the date, the place or
+the names are missing, ask ONE short question; never invent them. The owner should only have to describe
+the deal in a sentence.
+
 Limits: title up to 40 chars (2-4 words), body up to 160 chars (one short line). The legal disclaimer is
 added automatically: do not write it. Check `warnings` in the job result: if text was shrunk or overflowed,
 shorten it and create a new job.
@@ -82,9 +88,13 @@ def _with_preview(job: dict) -> dict:
 
 
 @mcp.tool()
-def get_copy_guide() -> str:
-    """The Parties 24/7 writing voice with good and bad examples. Read it before writing copy."""
-    return copy_style.GUIDE
+def get_copy_guide(kind: str = "standard") -> str:
+    """The Parties 24/7 writing voice with good and bad examples. Read it before writing copy.
+
+    kind: 'standard' (news/entertainment posts) or 'promo' (paid promotion of an artist, festival or
+    party for a client). For 'promo' the guide includes the 3-part structure and the brief to collect.
+    """
+    return copy_style.GUIDE + ("\n" + copy_style.PROMO_GUIDE if kind == "promo" else "")
 
 
 @mcp.tool()
@@ -98,7 +108,8 @@ def inspect_source(source: str) -> dict:
 
 
 @mcp.tool()
-def create_video(source: str, title: str, body: str, caption: str, layout: str = "lower") -> dict:
+def create_video(source: str, title: str, body: str, caption: str, layout: str = "lower",
+                 kind: str = "standard", cta_keyword: str | None = None) -> dict:
     """Start rendering a branded Reel. Returns {job_id, status} immediately, or the style problems to fix.
 
     source: TikTok/Instagram/YouTube URL, or 'inbox:<file>' from list_inbox.
@@ -107,14 +118,18 @@ def create_video(source: str, title: str, body: str, caption: str, layout: str =
     caption: Instagram caption: a hook line, 1-2 factual sentences, then 3-5 hashtags. Do not include the
         legal disclaimer; it is added for you.
     layout: 'lower' (default; crops the top to hide original captions) or 'standard' (centered).
+    kind: 'standard' (default) or 'promo' for a paid promotion of an artist/festival/party. A promo has no
+        source disclaimer and no hashtags, and must state the date and (with cta_keyword) quote the keyword.
+    cta_keyword: promo only. The single word viewers comment to get details, e.g. an artist or city name;
+        the caption must quote it as הגיבו ״מילה״. Use it only if the account really answers those comments.
     All three texts are required and checked against the house style (see get_copy_guide); if the check
     fails nothing is rendered and `problems` lists what to change.
     """
-    check = copy_style.lint(title, body, caption)
+    check = copy_style.lint(title, body, caption, kind, cta_keyword)
     if check["problems"]:
         return {"status": "rejected", "problems": check["problems"], "tips": check["tips"],
                 "next": "Fix the problems (see get_copy_guide) and call create_video again."}
-    job_id = pipeline.submit_job(source, title, body, caption, layout)
+    job_id = pipeline.submit_job(source, title, body, caption, layout, kind=kind)
     out = {"job_id": job_id, "status": "queued",
            "next": "Poll get_video_job(job_id) every ~20s until status is 'ready' or 'failed'."}
     if check["tips"]:
