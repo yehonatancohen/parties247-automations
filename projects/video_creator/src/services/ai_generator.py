@@ -18,7 +18,7 @@ class AIGenerator:
 
     def generate_description(self, user_prompt: str, video_info: dict) -> str:
         if not self.gemini_available:
-            return "AI Description Unavailable (Missing API Key)."
+            raise RuntimeError("Gemini unavailable (missing GEMINI_API_KEY).")
 
         # Construct context
         context = f"""
@@ -40,7 +40,9 @@ class AIGenerator:
         STRICT RULES:
         1. DO NOT invent facts. DO NOT mention DJs, artists, cities, or events (like "David Guetta") unless they are explicitly in the metadata or user text below.
         2. DO NOT try to "research" the link. Use only the text provided.
-        3. Tone: Young, high-energy, nightlife, FOMO (ages 16-25).
+        3. Voice: a friend from the scene telling you what he just saw. Concrete, conversational Hebrew, short.
+           State who/where/what happened ONLY if it is in the info below. At most 2 emoji, at most 1 exclamation
+           mark. NEVER use hype cliches such as: אנרגיה מטורפת, לא תאמינו, חייבים לראות, הלילה הכי חם, מטורף.
         4. Sections: Exactly four sections separated by a single line containing only "-".
 
         STRUCTURE:
@@ -56,12 +58,39 @@ class AIGenerator:
         {context}
         """
         
-        try:
-            print("🧠 Asking Gemini for description...")
-            response = self.model.generate_content(prompt)
-            if response and response.text:
-                return response.text.strip()
-            return "AI returned empty response."
-        except Exception as e:
-            print(f"⚠️ Gemini error: {e}")
-            return "Error generating description with AI."
+        # Errors propagate on purpose: callers fall back to the user's own text, and
+        # an error string must never be mistaken for a publishable caption.
+        print("🧠 Asking Gemini for description...")
+        response = self.model.generate_content(prompt)
+        if not (response and response.text and response.text.strip()):
+            raise RuntimeError("Gemini returned an empty response.")
+        return response.text.strip()
+
+    def generate_copy(self, video_info: dict) -> dict:
+        """Fallback when the caller supplies no title/body: returns {'title', 'body'} in Hebrew."""
+        import json
+        if not self.gemini_available:
+            raise RuntimeError("Gemini unavailable (missing GEMINI_API_KEY).")
+
+        prompt = f"""
+        You write the on-screen text for a nightlife video for 'Parties247' (Israel).
+        Use ONLY the metadata below. Do not invent artists, venues, dates or cities.
+        Return JSON only: {{"title": "...", "body": "..."}}
+        - title: Hebrew, 2-4 words, factual (a name or what happened), no slogans, no hype words, at most 1 emoji.
+        - body: Hebrew, max 12 words, one short concrete fact. If the metadata has no concrete fact, say what is
+          visible in generic terms (e.g. the crowd, the stage) and never name people or places.
+
+        METADATA:
+        - Title: {video_info.get('title', 'N/A')}
+        - Uploader: {video_info.get('uploader', 'N/A')}
+        - Tags: {', '.join(video_info.get('tags', []) or [])}
+        - Description: {str(video_info.get('description', 'N/A'))[:600]}
+        """
+        response = self.model.generate_content(
+            prompt, generation_config={"response_mime_type": "application/json"}
+        )
+        data = json.loads(response.text)
+        title, body = str(data.get("title", "")).strip(), str(data.get("body", "")).strip()
+        if not title:
+            raise RuntimeError("Gemini returned no title.")
+        return {"title": title, "body": body}

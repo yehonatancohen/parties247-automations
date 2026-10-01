@@ -17,3 +17,4 @@ flask
 pytesseract
 pytest
 pytest-mock
+mcp<2

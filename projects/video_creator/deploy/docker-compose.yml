@@ -1,0 +1,40 @@
+# Video MCP server + Cloudflare Tunnel (outbound-only: no ports are opened on the VPS).
+# Run from the repo root:
+#   docker compose -f projects/video_creator/deploy/docker-compose.yml --env-file projects/video_creator/deploy/.env up -d --build
+services:
+  video-mcp:
+    image: video-mcp:latest
+    build:
+      context: ../../..
+      dockerfile: projects/video_creator/deploy/Dockerfile
+    restart: unless-stopped
+    environment:
+      MCP_PATH_SECRET: ${MCP_PATH_SECRET:?set MCP_PATH_SECRET}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?set PUBLIC_BASE_URL}
+      PUBLISH_MODE: ${PUBLISH_MODE:-manual}
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:?set TELEGRAM_TOKEN}
+      ALLOWED_USER_ID: ${ALLOWED_USER_ID:?set ALLOWED_USER_ID}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      IG_ACCESS_TOKEN: ${IG_ACCESS_TOKEN:-}
+      IG_TEST_ACCESS_TOKEN: ${IG_TEST_ACCESS_TOKEN:-}
+      IG_TARGET: ${IG_TARGET:-main}
+      APPROVAL_CODE_REQUIRED: ${APPROVAL_CODE_REQUIRED:-1}
+    volumes:
+      - video_output:/app/projects/video_creator/src/output
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8765/healthz')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - video-mcp
+
+volumes:
+  video_output:

@@ -126,6 +126,35 @@ async def receive_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return LINK
 
 
+TELEGRAM_DOWNLOAD_LIMIT = 20 * 1024 * 1024  # Bot API getFile cap
+
+
+async def receive_inbox_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    A video sent outside the /start conversation goes to the inbox, where the MCP
+    server / CLI can pick it up (source='inbox:<name>').
+    """
+    if update.effective_user.id not in Config.get_allowed_user_ids():
+        return
+
+    video = update.message.video or update.message.document
+    if not video:
+        return
+    if (video.file_size or 0) > TELEGRAM_DOWNLOAD_LIMIT:
+        await update.message.reply_text(
+            f"❌ הקובץ גדול מדי ({video.file_size / 1e6:.0f}MB). טלגרם מאפשר לבוטים להוריד עד 20MB. "
+            "שלח אותו כסרטון דחוס (לא כקובץ), או שלח קישור."
+        )
+        return
+
+    Config.ensure_dirs()
+    name = f"tg_{video.file_unique_id}.mp4"
+    path = os.path.join(Config.INBOX_DIR, name)
+    tg_file = await context.bot.get_file(video.file_id)
+    await tg_file.download_to_drive(custom_path=path)
+    await update.message.reply_text(f"📥 נשמר בתיבת הדואר: inbox:{name}")
+
+
 async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     link = update.message.text.strip()
     context.user_data['link'] = link
@@ -452,7 +481,9 @@ async def main():
     )
     
     application.add_handler(conv_handler)
-    
+    # Registered after the conversation: it only sees videos sent while no conversation is active
+    application.add_handler(MessageHandler(filters.VIDEO | filters.Document.VIDEO, receive_inbox_video))
+
     # Initialize the application and send startup notification
     await application.initialize()
     

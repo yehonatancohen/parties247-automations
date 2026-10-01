@@ -69,7 +69,8 @@ class GraphicsEngine:
         except OSError as e:
             raise FileNotFoundError(f"Fonts not found: {e}")
 
-    def _create_overlay(self, headline: str, body: str) -> str:
+    def _create_overlay(self, headline: str, body: str, overlay_path: str | None = None) -> str:
+        self.last_warnings = []
         canvas = self.overlay_base.copy()
         text_layer = Image.new('RGBA', canvas.size, (0, 0, 0, 0))
         
@@ -105,7 +106,11 @@ class GraphicsEngine:
         
         while title_font.getlength(headline_processed) > safe_width and title_font.size > 40:
             title_font = ImageFont.truetype(Config.FONT_BOLD, title_font.size - 5)
-            
+        if title_font.size < 70:
+            self.last_warnings.append(
+                f"Title is long: font shrank to {title_font.size}px (from 105). Use a shorter title for better readability."
+            )
+
         # Title positioned in the center of the title area
         headline_pos = (center_x, sign_y + top_padding + (title_area_height // 2))
         
@@ -164,6 +169,15 @@ class GraphicsEngine:
             if total_height <= max_available_height or current_body_size == min_body_size:
                 final_body_font = temp_font
                 final_body_lines = lines
+                if total_height > max_available_height:
+                    self.last_warnings.append(
+                        f"Body text overflows the sign even at the minimum font size ({min_body_size}px) "
+                        f"with {len(lines)} lines. Shorten the body."
+                    )
+                elif current_body_size < 40:
+                    self.last_warnings.append(
+                        f"Body text is small ({current_body_size}px, {len(lines)} lines). Shorter text reads better."
+                    )
                 break
             current_body_size -= 2
             
@@ -225,27 +239,36 @@ class GraphicsEngine:
             canvas.paste(text_shadow, (3, 3), text_shadow)
         canvas.paste(text_layer, (0, 0), text_layer)
         
-        overlay_path = os.path.join(Config.TEMP_DIR, "overlay.png")
+        overlay_path = overlay_path or os.path.join(Config.TEMP_DIR, "overlay.png")
         canvas.save(overlay_path)
         return overlay_path
 
-    def render_video(self, input_path: str, headline: str, body: str, layout_mode: str = 'lower', progress_callback=None) -> str:
+    def render_video(self, input_path: str, headline: str, body: str, layout_mode: str = 'lower',
+                     progress_callback=None, output_path: str | None = None,
+                     overlay_path: str | None = None) -> str:
         """
         Renders the final video using FFmpeg with advanced Anti-Detection filters.
+        Pass output_path/overlay_path for isolated (per-job) rendering; the Telegram bot
+        keeps using the shared defaults. Raises RuntimeError if no valid file is produced.
         """
         import subprocess
-        import json
-        import imageio_ffmpeg
-        
-        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        from services.media_utils import probe_media, ffmpeg_exe as get_ffmpeg_exe
+
+        ffmpeg_exe = get_ffmpeg_exe()
 
         print(f"[INFO] Rendering video ({layout_mode})...")
-        
-        overlay_path = self._create_overlay(headline, body)
-        
-        base_name = os.path.basename(input_path)
-        output_filename = f"final_{base_name}"
-        output_path = os.path.join(Config.OUTPUT_DIR, output_filename)
+
+        overlay_path = self._create_overlay(headline, body, overlay_path)
+
+        if output_path is None:
+            base_name = os.path.basename(input_path)
+            output_path = os.path.join(Config.OUTPUT_DIR, f"final_{base_name}")
+
+        # Sources without an audio track (screen recordings, muted clips) would make
+        # the [0:a] filter graph fail — feed silence instead.
+        has_audio = probe_media(input_path)["has_audio"]
+        audio_label = "0:a" if has_audio else "2:a"
+        extra_inputs = [] if has_audio else ['-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo']
 
         # Standard filters that work for both modes (speedup + quality)
         # Note: We used to trim to 5s here, which caused the freezing issue if audio wasn't trimmed.
@@ -286,9 +309,10 @@ class GraphicsEngine:
             ffmpeg_exe,
             '-i', input_path,
             '-i', overlay_path,
+            *extra_inputs,
             '-filter_complex',
             f"[0:v]{video_filters}[v_proc];" +
-            f"[0:a]{audio_filters}[a_proc];" +
+            f"[{audio_label}]{audio_filters}[a_proc];" +
             f"[v_proc]split[v_to_main][v_copy];" +
             f"[v_to_main]{main_transform}drawbox=0:0:1080:{self.text_start_y + 70}:color=black:t=fill[v_masked];" +
             f"[v_copy]crop=1080:{self.text_start_y + 70}:0:(in_h-{self.text_start_y + 70})/2+300,format=rgba,colorchannelmixer=aa=0.25[v_filler];" +
@@ -303,17 +327,16 @@ class GraphicsEngine:
             '-pix_fmt', 'yuv420p',
             '-movflags', '+faststart',
             '-map_metadata', '-1',
-            '-y', 
-            output_path
         ]
+        if not has_audio:
+            ffmpeg_cmd += ['-shortest']  # anullsrc is infinite; stop at the end of the video
+        ffmpeg_cmd += ['-y', output_path]
 
-        try:
-            print(f"[INFO] Saving video to: {output_path}")
-            subprocess.run(ffmpeg_cmd, check=True)
-            return output_path
-        except FileNotFoundError:
-            print("[WARN] ffmpeg not found. Video not rendered.")
-            return output_path
-        except subprocess.CalledProcessError as e:
-            print(f"Error in render_video: {e}")
-            raise e
+        print(f"[INFO] Saving video to: {output_path}")
+        proc = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if proc.returncode != 0:
+            tail = "\n".join(proc.stderr.strip().splitlines()[-8:])
+            raise RuntimeError(f"ffmpeg render failed (exit {proc.returncode}):\n{tail}")
+        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+            raise RuntimeError("ffmpeg finished but produced no output file.")
+        return output_path

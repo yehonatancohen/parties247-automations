@@ -29,9 +29,6 @@ else:
 print(f"[CONFIG] TELEGRAM_TOKEN found: {'YES' if os.getenv('TELEGRAM_TOKEN') else 'NO'}")
 print(f"[CONFIG] TELEGRAM_INT_TOKEN found: {'YES' if os.getenv('TELEGRAM_INT_TOKEN') else 'NO'}")
 print(f"[CONFIG] GEMINI_API_KEY found: {'YES' if os.getenv('GEMINI_API_KEY') else 'NO'}")
-if os.getenv('TELEGRAM_TOKEN'):
-    token = os.getenv('TELEGRAM_TOKEN')
-    print(f"[CONFIG] TELEGRAM_TOKEN snippet: {token[:5]}...{token[-5:]}")
 
 class Config:
     # Environment
@@ -81,6 +78,25 @@ class Config:
     ASSETS_DIR = os.path.join(BASE_DIR, "assets")
     OUTPUT_DIR = os.path.join(BASE_DIR, "output")
     TEMP_DIR = os.path.join(BASE_DIR, "temp")
+    # Headless pipeline (CLI / MCP): one directory per job
+    JOBS_DIR = os.path.join(OUTPUT_DIR, "jobs")
+    # Where media sent through Telegram lands; the only local path remote callers may use as a source
+    INBOX_DIR = os.path.join(OUTPUT_DIR, "inbox")
+    # 'manual' = hand the finished video to the user on Telegram. 'instagram' = Graph API (not wired yet).
+    # Server-side setting on purpose: the calling model cannot change it.
+    PUBLISH_MODE = os.getenv("PUBLISH_MODE", "manual")
+    # Instagram API with Instagram Login (no Facebook Page needed). The token is a long-lived (60 day)
+    # Instagram user token; once stored in the token file it refreshes itself, the env var is only the seed.
+    IG_ACCESS_TOKEN = os.getenv("IG_ACCESS_TOKEN", "")
+    # Optional second account for dry runs. IG_TARGET picks which one is used ('main' or 'test');
+    # it is a server-side env var, so the calling model cannot redirect posts.
+    IG_TEST_ACCESS_TOKEN = os.getenv("IG_TEST_ACCESS_TOKEN", "")
+    IG_TARGET = os.getenv("IG_TARGET", "main")
+    IG_GRAPH_VERSION = os.getenv("IG_GRAPH_VERSION", "v23.0")
+    # Real publishing needs a one-time code sent to the owner on Telegram and typed back in the chat.
+    APPROVAL_CODE_REQUIRED = os.getenv("APPROVAL_CODE_REQUIRED", "1") != "0"
+    # Public base URL of the MCP server, used to build preview links, e.g. https://videos.example.com
+    PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
     WOOD_IMAGE_PATH = os.path.join(ASSETS_DIR, "wood_sign.png")
     # Ready-to-use overlay template (User provided)
     READY_OVERLAY_PATH = os.path.join(ASSETS_DIR, "overlay_template.png")
@@ -101,4 +117,6 @@ class Config:
     def ensure_dirs():
         os.makedirs(Config.OUTPUT_DIR, exist_ok=True)
         os.makedirs(Config.TEMP_DIR, exist_ok=True)
+        os.makedirs(Config.JOBS_DIR, exist_ok=True)
+        os.makedirs(Config.INBOX_DIR, exist_ok=True)
         os.makedirs(Config.INSTAGRAM_SESSION_DIR, exist_ok=True)
