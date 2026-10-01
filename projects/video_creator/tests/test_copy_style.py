@@ -74,7 +74,7 @@ def test_guide_mentions_the_key_rules():
 PROMO_OK = ("DJ דוגמה באשדוד", "שישי 9.10, מצודת-ים",
             "אחרי חודשים בחו\"ל, DJ דוגמה חוזר לנגן על חוף הים. נותרו כרטיסים אחרונים.\n"
             "ביום שישי הקרוב (9.10) במצודת-ים באשדוד, עם אמנים נוספים.\n"
-            "רוצים פרטים? הגיבו ״אשדוד״ ונשלח לכם הכל בפרטי 🏖️")
+            "רוצים פרטים? הגיבו ״אשדוד״ ונחזור אליכם 🏖️")
 
 
 def test_promo_example_passes():
@@ -106,5 +106,22 @@ def test_promo_has_no_disclaimer_and_standard_does():
 
 def test_promo_without_keyword_only_gets_a_tip():
     t, b, c = PROMO_OK
-    r = copy_style.lint(t, b, c.replace("הגיבו ״אשדוד״ ונשלח לכם הכל בפרטי", "פרטים בביו"), "promo", None)
+    r = copy_style.lint(t, b, c.replace("הגיבו ״אשדוד״ ונחזור אליכם", "פרטים בביו"), "promo", None)
     assert r["problems"] == [] and any("call to action" in x for x in r["tips"])
+
+
+def test_promo_length_and_dm_promise_tips():
+    t, b, c = PROMO_OK
+    assert not any("chars" in x for x in copy_style.lint(t, b, c, "promo", "אשדוד")["tips"])
+    short = copy_style.lint(t, b, "9.10 הגיבו ״אשדוד״", "promo", "אשדוד")
+    assert any("only" in x for x in short["tips"])
+    long_ = copy_style.lint(t, b, c + " " + "מילה " * 80, "promo", "אשדוד")
+    assert any("Tighten" in x for x in long_["tips"])
+    promised = copy_style.lint(t, b, c.replace("ונחזור אליכם", "ונשלח לכם הכל בפרטי"), "promo", "אשדוד")
+    assert any("no DM automation" in x for x in promised["tips"])
+    assert promised["problems"] == []              # a tip, not a blocker
+
+
+def test_promo_guide_carries_the_measured_findings():
+    for needle in ("24 פוסטים", "חציון", "מילת הקוד", "בדיקה עצמית"):
+        assert needle in copy_style.PROMO_GUIDE
