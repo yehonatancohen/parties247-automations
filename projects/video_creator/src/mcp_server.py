@@ -108,16 +108,19 @@ def inspect_source(source: str) -> dict:
 
 
 @mcp.tool()
-def create_video(source: str, title: str, body: str, caption: str, layout: str = "lower",
+def create_video(source: str, title: str, body: str, caption: str, layout: str = "standard",
                  kind: str = "standard", cta_keyword: str | None = None) -> dict:
     """Start rendering a branded Reel. Returns {job_id, status} immediately, or the style problems to fix.
 
     source: TikTok/Instagram/YouTube URL, or 'inbox:<file>' from list_inbox.
-    title: headline on the wood sign. 2-4 words, factual, Hebrew (max 40 chars).
-    body: one short line under the title with a concrete fact (max 160 chars).
+    title: headline on the wood sign. 2-4 Hebrew words that build anticipation from a real fact: a short
+        question with one emoji, or a name plus one surprising detail (max 40 chars).
+    body: one short line under the title: a plain Hebrew translation of the source's own text, starting
+        with a Hebrew word, with as little English as possible (max 160 chars).
     caption: Instagram caption: a hook line, 1-2 factual sentences, then 3-5 hashtags. Do not include the
         legal disclaimer; it is added for you.
-    layout: 'lower' (default; crops the top to hide original captions) or 'standard' (centered).
+    layout: 'standard' (default; the sign sits over the source's own on-screen text) or 'lower' (crops the
+        top instead; only when the user asks or the original text is at the very top).
     kind: 'standard' (default) or 'promo' for a paid promotion of an artist/festival/party. A promo has no
         source disclaimer and no hashtags, and must state the date and (with cta_keyword) quote the keyword.
     cta_keyword: promo only. The single word viewers comment to get details, e.g. an artist or city name;

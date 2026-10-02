@@ -19,6 +19,11 @@ GOOD = [
     ("דרקו בחתונה", "עולה לשיר איתו על הבמה",
      "הייתם מוכנים לשילוב הזה? 🎉\nדיג'יי דרקו הופיע אמש בחתונה, והזמר המפורסם עלה להופיע יחד איתו.\n"
      "#דרקו #מסיבתחתונה #וייבים"),
+    # an anticipation question with one emoji, and a body that explains the unfamiliar name
+    ("להיט חדש בדרך?😮", "הצמד Club de Combat סגר את הסט עם MFG, טראק שעוד לא שוחרר",
+     "איך סוגרים סט? עם טראק שעוד לא יצא 👀\n"
+     "הצמד Club de Combat סגר את הסט שלו ב-Factory Town עם טראק שעדיין לא שוחרר: MFG.\n"
+     "#ClubDeCombat #Bonafique #FactoryTown #EDM #מסיבות"),
 ]
 
 
@@ -125,3 +130,13 @@ def test_promo_length_and_dm_promise_tips():
 def test_promo_guide_carries_the_measured_findings():
     for needle in ("24 פוסטים", "חציון", "מילת הקוד", "בדיקה עצמית"):
         assert needle in copy_style.PROMO_GUIDE
+
+
+def test_raqm_text_is_pinned_right_to_left():
+    """With Raqm the text is not reordered, so a line opening with a Latin name needs a leading RLM."""
+    from services.text_utils import RLM, TextUtils
+    assert TextUtils.process_hebrew("MFG, יחד עם Bonafique", reorder_content=False).startswith(RLM)
+    out = TextUtils.process_hebrew("להיט חדש בדרך?😮", reorder_content=False)
+    assert out == "😮" + RLM + "להיט חדש בדרך?"
+    # the legacy (no Raqm) path reorders the characters itself and must stay untouched
+    assert RLM not in TextUtils.process_hebrew("דרקו בחתונה", reorder_content=True)
