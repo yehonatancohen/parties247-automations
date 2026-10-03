@@ -104,8 +104,8 @@ def test_publish_reel_validation(env, monkeypatch, kwargs, msg):
 
 
 def test_processing_error_and_token_never_leaks(env, monkeypatch):
-    fake_graph(monkeypatch, [], statuses=("ERROR", "ERROR"))
-    with pytest.raises(ig.InstagramError, match="could not process"):
+    fake_graph(monkeypatch, [], statuses=("ERROR",) * ig.PROCESSING_ATTEMPTS)
+    with pytest.raises(ig.InstagramError, match=f"could not process.*after {ig.PROCESSING_ATTEMPTS} attempt"):
         ig.publish_reel("https://x/y.mp4", "c", duration=10)
 
     fake_graph(monkeypatch, [], fail_publish=True)
@@ -134,8 +134,8 @@ def test_processing_error_is_retried_with_a_fresh_container(env, monkeypatch):
 
 def test_persistent_error_reports_full_detail_and_never_publishes(env, monkeypatch):
     calls = []
-    fake_graph(monkeypatch, calls, statuses=("ERROR", "ERROR"))
-    with pytest.raises(ig.InstagramError, match=r"full response.*status_code.*after 2 attempt"):
+    fake_graph(monkeypatch, calls, statuses=("ERROR",) * ig.PROCESSING_ATTEMPTS)
+    with pytest.raises(ig.InstagramError, match=rf"full response.*status_code.*after {ig.PROCESSING_ATTEMPTS} attempt"):
         ig.publish_reel("https://x/y.mp4", "c", duration=10)
     assert not any(c[1].endswith("/media_publish") for c in calls)
 
@@ -306,3 +306,15 @@ def test_request_refused_for_unconfigured_or_unknown_account(env, monkeypatch):
     with pytest.raises(ig.InstagramError, match="Unknown Instagram account"):
         publisher.request_publish(jid, "evil")
     assert env == []                                      # no code is sent for a refused request
+
+
+def test_transient_processing_error_is_retried_with_a_fresh_container(env, monkeypatch):
+    """Two processing ERRORs in a row followed by a success must publish, waiting longer each time."""
+    calls, waits = [], []
+    fake_graph(monkeypatch, calls, statuses=("ERROR", "ERROR", "FINISHED"))
+    monkeypatch.setattr(time, "sleep", lambda s: waits.append(s))
+    out = ig.publish_reel("https://x/y.mp4", "c", duration=10)
+    assert out["media_id"]
+    posts = [c[1].rsplit("/", 1)[-1] for c in calls if c[0] == "POST"]
+    assert posts == ["media", "media", "media", "media_publish"]       # three containers, one publish
+    assert [w for w in waits if w in ig.RETRY_WAITS] == list(ig.RETRY_WAITS)

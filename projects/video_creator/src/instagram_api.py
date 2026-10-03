@@ -18,7 +18,11 @@ import requests
 from config import Config
 
 BASE = "https://graph.instagram.com"
-PROCESSING_ATTEMPTS = 2        # a processing ERROR can be transient; each attempt uses a fresh container
+# A processing ERROR is often transient, and a fresh container minutes later goes through: on 2-3 Oct 2026
+# two publishes failed twice 10s apart and then passed on a manual retry a few minutes later. So wait
+# longer between attempts; each attempt uses a fresh container.
+RETRY_WAITS = (30, 60)         # seconds to wait before the 2nd and the 3rd attempt
+PROCESSING_ATTEMPTS = len(RETRY_WAITS) + 1
 TOKEN_FILE = None  # tests override; normally one file per target, see _store_path()
 REFRESH_AFTER_DAYS = 20          # tokens last 60 days; refresh well before expiry
 CAPTION_LIMIT = 2200
@@ -160,7 +164,7 @@ def publish_reel(video_url: str, caption: str, duration: float | None = None,
     Publish a Reel and return {'media_id', 'permalink', 'account', 'target'}. Meta fetches video_url, so it
     must be a public https URL. (Resumable upload is not offered by graph.instagram.com: it answers
     "The parameter video_url is required".) Processing takes anywhere from ~30s to a few minutes and
-    occasionally ends in a transient ERROR, so one retry with a fresh container is built in.
+    occasionally ends in a transient ERROR, so retries with a fresh container are built in (RETRY_WAITS).
     """
     if not (video_url or "").startswith("https://"):
         raise InstagramError("video_url must be a public https URL (set PUBLIC_BASE_URL).")
@@ -185,7 +189,7 @@ def publish_reel(video_url: str, caption: str, duration: float | None = None,
         except InstagramError as e:
             if attempt == PROCESSING_ATTEMPTS or "could not process" not in str(e):
                 raise InstagramError(f"{e} (after {attempt} attempt(s))") from None
-            time.sleep(10)
+            time.sleep(RETRY_WAITS[attempt - 1])
 
     media_id = _call("POST", f"{user_id}/media_publish", {"creation_id": container}, target=target)["id"]
     try:
