@@ -1,6 +1,8 @@
 from bidi.algorithm import get_display
 import emoji
 
+RLM = "\u200f"   # right-to-left mark: invisible, sets the paragraph direction
+
 def process_hebrew_with_emojis(text: str, reorder_content: bool = True) -> str:
     """
     Processes a string containing both Hebrew text and emojis.
@@ -27,7 +29,10 @@ def process_hebrew_with_emojis(text: str, reorder_content: bool = True) -> str:
             if reorder_content:
                 processed_parts.append(get_display(part['content'], base_dir='R'))
             else:
-                processed_parts.append(part['content'])
+                # Raqm lays the text out itself and takes the direction from the first strong
+                # character, so a line that opens with a Latin name ("Club de Combat ...",
+                # "MFG, ...") would come out left-to-right. A leading RLM pins it to RTL.
+                processed_parts.append(RLM + part['content'])
         else:
             processed_parts.append(part['content'])
             
